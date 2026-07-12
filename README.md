@@ -14,6 +14,12 @@ This is not polished software. It is a benchmarkable V1 for testing latency and 
 
 ## Quick Start On Windows
 
+Full test procedure:
+
+```text
+TESTING_WINDOWS.md
+```
+
 Install Python 3.11 or 3.12 if needed.
 
 ```powershell
