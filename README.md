@@ -10,7 +10,37 @@ Goal:
 - paste the text into the active app, such as Notepad;
 - keep audio local.
 
-This is not polished software. It is a benchmarkable V1 for testing latency and quality on Windows PCs.
+This is not polished software. It is a benchmarkable MVP for testing latency and quality on Windows PCs.
+
+## V2 Windows App
+
+The desktop test app is:
+
+```powershell
+python tray_app.py --model small --language fr
+```
+
+It provides:
+
+- a small Windows window;
+- a tray icon when supported;
+- global `F9` start/stop;
+- model selection;
+- local transcription;
+- light cleanup for hesitations/repeated words;
+- final paste into the active app.
+
+Read:
+
+```text
+APP_WINDOWS.md
+```
+
+Optional live preview:
+
+```powershell
+python tray_app.py --model small --language fr --live-preview
+```
 
 ## Quick Start On Windows
 
@@ -28,7 +58,7 @@ cd local-whisper-dictation
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 python dictate.py --model small --language fr
 ```
 
@@ -37,7 +67,7 @@ If Python 3.12 is not installed, try:
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 python dictate.py --model small --language fr
 ```
 

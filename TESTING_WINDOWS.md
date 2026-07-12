@@ -46,11 +46,19 @@ https://git-scm.com/download/win
 
 ## 3. Create The Virtual Environment
 
+Simple method:
+
+```powershell
+.\install_windows.ps1
+```
+
+Manual method:
+
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 If `py -3.12` fails, use:
@@ -59,7 +67,7 @@ If `py -3.12` fails, use:
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ## 4. First Test In Notepad
@@ -82,7 +90,39 @@ Then:
 
 Press `Esc` to stop the script.
 
-## 5. Compare Models
+## 5. Test The Windows App
+
+The V2 desktop app has a small window and a tray icon:
+
+```powershell
+python tray_app.py --model base --language fr
+```
+
+Then:
+
+1. Open Notepad.
+2. Click inside the blank document.
+3. Press `F9`.
+4. Speak for 5 to 10 seconds.
+5. Press `F9` again.
+6. Wait for transcription.
+7. The text should paste into Notepad.
+
+If `base` works, test:
+
+```powershell
+python tray_app.py --model small --language fr
+```
+
+Optional live preview inside the STTLocal window:
+
+```powershell
+python tray_app.py --model small --language fr --live-preview
+```
+
+Read `APP_WINDOWS.md` for the full app procedure.
+
+## 6. Compare Models
 
 Test in this order:
 
@@ -109,7 +149,16 @@ Expected rough behavior:
 - `medium`: better quality, slower;
 - `turbo`: potentially strong, but must be validated on the HP.
 
-## 6. Benchmark Audio Files
+Also compare the app mode:
+
+```powershell
+python tray_app.py --model base --language fr
+python tray_app.py --model small --language fr
+python tray_app.py --model medium --language fr
+python tray_app.py --model turbo --language fr
+```
+
+## 7. Benchmark Audio Files
 
 Create a `samples` folder and put test audio files in it:
 
@@ -137,7 +186,7 @@ Results:
 benchmark-results/results.csv
 ```
 
-## 7. What To Report Back
+## 8. What To Report Back
 
 For each model, send:
 
@@ -171,7 +220,7 @@ Text pasted correctly in Notepad: yes
 Problems: first run downloaded model, fan audible
 ```
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 ### PowerShell blocks activation
 
@@ -217,13 +266,14 @@ The first launch downloads the model. Later launches should be faster.
 
 For a future enterprise/offline version, models should be bundled or installed from an internal package.
 
-## 9. Current MVP Limits
+## 10. Current MVP Limits
 
-- No nice UI.
+- UI is intentionally rough.
 - No installer.
 - No NPU acceleration yet.
 - Uses CPU through `faster-whisper`.
 - Uses clipboard paste, not deep Windows text injection.
 - First model download may require internet.
+- Live preview is heavier than final-only transcription.
 
-The goal of this V1 is only to validate the product loop and choose the best model.
+The goal of this MVP is to validate the product loop and choose the best model.
