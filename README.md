@@ -1,4 +1,4 @@
-# Local Whisper Dictation MVP
+# ScribeLocal
 
 Windows-first MVP for local voice dictation.
 
@@ -40,6 +40,20 @@ Optional live preview:
 
 ```powershell
 python tray_app.py --model small --language fr --live-preview
+```
+
+## Windows Installer
+
+Build notes:
+
+```text
+INSTALLER_WINDOWS.md
+```
+
+The intended user-facing installer is:
+
+```text
+ScribeLocal-Setup-0.2.0.exe
 ```
 
 ## Quick Start On Windows

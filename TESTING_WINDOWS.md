@@ -114,7 +114,7 @@ If `base` works, test:
 python tray_app.py --model small --language fr
 ```
 
-Optional live preview inside the STTLocal window:
+Optional live preview inside the ScribeLocal window:
 
 ```powershell
 python tray_app.py --model small --language fr --live-preview

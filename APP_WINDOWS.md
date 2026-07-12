@@ -1,4 +1,4 @@
-# STTLocal Windows App
+# ScribeLocal Windows App
 
 This is the V2 test app. It is still intentionally rough, but it behaves more like a Windows desktop tool than the first console-only script.
 
@@ -11,7 +11,7 @@ This is the V2 test app. It is still intentionally rough, but it behaves more li
 - Transcribes locally with `faster-whisper`.
 - Cleans common hesitations and repeated words.
 - Copies the final text to the clipboard and pastes it into the active app.
-- Optionally shows a live preview inside the STTLocal window while you speak.
+- Optionally shows a live preview inside the ScribeLocal window while you speak.
 
 The final paste still happens after you stop recording. This is deliberate for the test version: Whisper often improves punctuation and wording once it has the full sentence.
 
@@ -84,7 +84,7 @@ python tray_app.py --model turbo --language fr
 
 ## Live Preview
 
-To preview text inside the STTLocal window while recording:
+To preview text inside the ScribeLocal window while recording:
 
 ```powershell
 python tray_app.py --model small --language fr --live-preview

@@ -20,6 +20,7 @@ keyboard = None
 MODELS = ["base", "small", "medium", "turbo"]
 COMPUTE_TYPES = ["int8", "int8_float16", "float16", "float32"]
 CLEANUP_MODES = ["off", "light", "strong"]
+APP_NAME = "ScribeLocal"
 
 
 def load_gui_dependencies() -> None:
@@ -48,7 +49,7 @@ class TrayDictationApp:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.root = tk.Tk()
-        self.root.title("STTLocal")
+        self.root.title(APP_NAME)
         self.root.geometry("560x430")
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
 
@@ -81,7 +82,7 @@ class TrayDictationApp:
 
         header = ttk.Frame(self.root)
         header.pack(fill="x", padx=14, pady=(14, 8))
-        ttk.Label(header, text="STTLocal", font=("Segoe UI", 17, "bold")).pack(anchor="w")
+        ttk.Label(header, text=APP_NAME, font=("Segoe UI", 17, "bold")).pack(anchor="w")
         ttk.Label(header, text="Dictee locale Windows - aucun envoi cloud").pack(anchor="w")
 
         settings = ttk.LabelFrame(self.root, text="Moteur")
@@ -135,7 +136,7 @@ class TrayDictationApp:
                 pystray.MenuItem("Start/Stop F9", lambda: self.events.put(("toggle", None))),
                 pystray.MenuItem("Quitter", lambda: self.events.put(("quit", None))),
             )
-            self.tray_icon = pystray.Icon("STTLocal", image, "STTLocal", menu)
+            self.tray_icon = pystray.Icon(APP_NAME, image, APP_NAME, menu)
             threading.Thread(target=self.tray_icon.run, daemon=True).start()
         except Exception as exc:
             self.log(f"Tray indisponible: {exc}")
@@ -291,7 +292,7 @@ class TrayDictationApp:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="STTLocal Windows tray app")
+    parser = argparse.ArgumentParser(description=f"{APP_NAME} Windows tray app")
     parser.add_argument("--model", default="small", choices=MODELS)
     parser.add_argument("--language", default="fr")
     parser.add_argument("--device", default="cpu")
