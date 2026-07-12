@@ -1,0 +1,5 @@
+faster-whisper==1.1.1
+numpy==2.2.6
+sounddevice==0.5.2
+pynput==1.8.1
+pyperclip==1.9.0

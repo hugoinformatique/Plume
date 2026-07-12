@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+models/
+samples/
+recordings/
+benchmark-results/
+*.wav
+*.mp3
+*.m4a
+*.log
