@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 Set-Location $Root
 
-Write-Host "ScribeLocal - Windows build"
+Write-Host "Plume - Windows build"
 
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt -r requirements-build.txt
@@ -16,7 +16,7 @@ if (Test-Path "dist") {
     Remove-Item -Recurse -Force "dist"
 }
 
-python -m PyInstaller --noconfirm "packaging\pyinstaller\ScribeLocal.spec"
+python -m PyInstaller --noconfirm "packaging\pyinstaller\Plume.spec"
 
 $Iscc = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
 if ($null -eq $Iscc) {
@@ -28,13 +28,13 @@ if ($null -eq $Iscc) {
 
 if ($null -eq $Iscc) {
     Write-Host "Inno Setup not found. Skipping installer build."
-    Write-Host "Portable app folder is available in dist\ScribeLocal"
+    Write-Host "Portable app folder is available in dist\Plume"
     exit 0
 }
 
 New-Item -ItemType Directory -Force -Path "dist\installer" | Out-Null
-& $Iscc "packaging\inno\ScribeLocal.iss"
+& $Iscc "packaging\inno\Plume.iss"
 
 Write-Host "Build complete."
-Write-Host "Portable folder: dist\ScribeLocal"
+Write-Host "Portable folder: dist\Plume"
 Write-Host "Installer: dist\installer"

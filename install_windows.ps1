@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-Write-Host "STTLocal - installation Windows"
+Write-Host "Plume - installation Windows"
 
 if (-not (Get-Command py -ErrorAction SilentlyContinue)) {
     throw "Python launcher 'py' introuvable. Installe Python 3.12 depuis https://www.python.org/downloads/windows/"

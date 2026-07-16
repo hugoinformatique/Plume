@@ -1,10 +1,10 @@
-# ScribeLocal Installer
+# Plume Installer
 
 Goal: produce a Windows download that works for a normal user without installing Python manually.
 
 ## Product Name
 
-The MVP product name is **ScribeLocal**.
+The MVP product name is **Plume**.
 
 Positioning:
 
@@ -14,13 +14,13 @@ Positioning:
 
 The Windows build produces two artifacts:
 
-- `ScribeLocal-portable`: app folder containing `ScribeLocal.exe` and dependencies.
-- `ScribeLocal-installer`: setup executable generated with Inno Setup.
+- `Plume-portable`: app folder containing `Plume.exe` and dependencies.
+- `Plume-installer`: setup executable generated with Inno Setup.
 
 The installer file name is:
 
 ```text
-ScribeLocal-Setup-0.2.0.exe
+Plume-Setup-0.2.0.exe
 ```
 
 ## Build On GitHub
@@ -57,17 +57,17 @@ cd STTLocal
 Outputs:
 
 ```text
-dist\ScribeLocal\
-dist\installer\ScribeLocal-Setup-0.2.0.exe
+dist\Plume\
+dist\installer\Plume-Setup-0.2.0.exe
 ```
 
 ## User Install Flow
 
 For a normal user:
 
-1. Download `ScribeLocal-Setup-0.2.0.exe`.
+1. Download `Plume-Setup-0.2.0.exe`.
 2. Run the installer.
-3. Launch `ScribeLocal`.
+3. Launch `Plume`.
 4. Choose a model.
 5. Press `F9`, speak, press `F9` again.
 6. Text is pasted into the active app.
