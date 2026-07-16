@@ -9,6 +9,9 @@ on:
       - "v*"
   workflow_dispatch: {}
 
+permissions:
+  contents: write  # allow the release step to publish the installer
+
 jobs:
   build:
     runs-on: windows-latest
@@ -26,6 +29,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-build.txt
+
+      - name: Generate icon assets
+        run: python scripts/make_icons.py
 
       - name: Build portable app (PyInstaller)
         run: python -m PyInstaller --noconfirm packaging/pyinstaller/Plume.spec
@@ -49,3 +55,12 @@ jobs:
         with:
           name: Plume-installer
           path: dist/installer/*.exe
+
+      # On a version tag (e.g. v0.3.0), publish a GitHub Release with the
+      # installer attached so it can be downloaded directly.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/installer/*.exe
+          generate_release_notes: true

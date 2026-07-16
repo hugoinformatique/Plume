@@ -9,6 +9,9 @@ Write-Host "Plume - Windows build"
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt -r requirements-build.txt
 
+Write-Host "Generating icon assets"
+python scripts\make_icons.py
+
 if (Test-Path "build") {
     Remove-Item -Recurse -Force "build"
 }

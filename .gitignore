@@ -6,6 +6,9 @@ models/
 samples/
 recordings/
 benchmark-results/
+build/
+dist/
+assets/
 *.wav
 *.mp3
 *.m4a

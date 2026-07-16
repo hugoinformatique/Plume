@@ -1,5 +1,5 @@
 #define MyAppName "Plume"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.3.0"
 #define MyAppPublisher "Hugo Informatique"
 #define MyAppExeName "Plume.exe"
 
@@ -19,6 +19,8 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesInstallIn64BitMode=x64
 UninstallDisplayName={#MyAppName}
+SetupIconFile=..\..\assets\plume.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"

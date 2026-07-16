@@ -1,7 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import os
+
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
+# Repo root, resolved from the spec location so the build works regardless of CWD.
+ROOT = os.path.dirname(os.path.dirname(SPECPATH))
 
 hiddenimports = (
     collect_submodules("faster_whisper")
@@ -14,16 +18,29 @@ hiddenimports = (
         "pynput",
         "sounddevice",
         "tkinter",
+        # Local modules (imported normally, but list them to be safe).
+        "backends",
+        "sttlocal",
+        "ui_theme",
+        "listening_bubble",
     ]
 )
 
 datas = collect_data_files("faster_whisper") + collect_data_files("ctranslate2")
+
+png_path = os.path.join(ROOT, "assets", "plume.png")
+if os.path.exists(png_path):
+    datas += [(png_path, "assets")]
+
+ico_path = os.path.join(ROOT, "assets", "plume.ico")
+icon = ico_path if os.path.exists(ico_path) else None
+
 binaries = collect_dynamic_libs("ctranslate2")
 
 
 a = Analysis(
-    ["tray_app.py"],
-    pathex=[],
+    [os.path.join(ROOT, "tray_app.py")],
+    pathex=[ROOT],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -52,6 +69,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=icon,
 )
 coll = COLLECT(
     exe,
