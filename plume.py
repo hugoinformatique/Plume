@@ -18,7 +18,7 @@ from pathlib import Path
 
 import webview
 
-from sttlocal import DictationEngine, Recorder, clean_transcript, paste_text
+from sttlocal import DictationEngine, Recorder, clean_transcript, copy_text, paste_text
 from config import Config, config_dir, hotkey_to_pynput
 from vocabulary import Vocabulary
 
@@ -30,6 +30,8 @@ PROFILES = {
     "ov-gpu": ("openvino", "GPU"),
     "ov-cpu": ("openvino", "CPU"),
 }
+FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
+DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
 
 
 def resource_dir() -> str:
@@ -132,6 +134,10 @@ class PlumeApp:
     def _set_transcript(self, text: str) -> None:
         self._js(self.window, f"window.plume && plume.setTranscript({json.dumps(text)})")
 
+    def _set_history(self) -> None:
+        history = self.config.get("history", [])
+        self._js(self.window, f"window.plume && plume.setHistory({json.dumps(history)})")
+
     def _bubble_state(self, state: str, text: str) -> None:
         self._js(self.bubble, f"window.plumeBubble && plumeBubble.setState({json.dumps(state)}, {json.dumps(text)})")
 
@@ -213,11 +219,14 @@ class PlumeApp:
             text = result.text if mode == "off" else clean_transcript(result.text, mode)
             text = self.vocab.apply(text)
             self._set_transcript(text)
+            if text:
+                self._add_history(text)
             self._log_metric(result, text)
             if text and self.config.get("autopaste"):
                 paste_text(text)
                 self._set_status(f"Collé — {result.elapsed:.1f}s", "Prêt")
             elif text:
+                copy_text(text)
                 self._set_status(f"Prêt (copié) — {result.elapsed:.1f}s", "Prêt")
             else:
                 self._set_status("Aucun texte détecté", "Prêt")
@@ -226,6 +235,20 @@ class PlumeApp:
         finally:
             time.sleep(0.5)
             self._hide_bubble()
+
+    def _add_history(self, text: str) -> None:
+        item = {
+            "text": text,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+        }
+        history = [item]
+        for old in self.config.get("history", []):
+            if old.get("text") != text:
+                history.append(old)
+            if len(history) >= 12:
+                break
+        self.config.set("history", history)
+        self._set_history()
 
     def _log_metric(self, result, text: str) -> None:
         if not self.config.get("metrics"):
@@ -362,6 +385,7 @@ class Api:
         profile = next((k for k, v in PROFILES.items() if v == (backend, device)), "fw-cpu")
         return {
             "words": self.app.vocab.to_list(),
+            "history": c.get("history", []),
             "config": {
                 "language": c.get("language"), "model": c.get("model"),
                 "profile": profile, "cleanup": c.get("cleanup"),
@@ -382,6 +406,24 @@ class Api:
         self.app.vocab.remove(int(index))
         self.app.config.set("vocabulary", self.app.vocab.to_list())
 
+    def paste_history(self, index):
+        history = self.app.config.get("history", [])
+        try:
+            text = history[int(index)]["text"]
+        except Exception:
+            return
+        paste_text(text)
+        self.app._set_status("Historique recollé", "Prêt")
+
+    def copy_history(self, index):
+        history = self.app.config.get("history", [])
+        try:
+            text = history[int(index)]["text"]
+        except Exception:
+            return
+        copy_text(text)
+        self.app._set_status("Historique copié", "Prêt")
+
     def set_hotkey(self, display):
         self.app.config.data["hotkey_display"] = display
         self.app.config.set("hotkey", hotkey_to_pynput(display))
@@ -391,7 +433,13 @@ class Api:
         if key == "profile":
             backend, device = PROFILES.get(value, PROFILES["fw-cpu"])
             self.app.config.data["backend"] = backend
-            self.app.config.set("device", device)
+            self.app.config.data["device"] = device
+            current_model = str(self.app.config.get("model") or "")
+            if backend == "openvino" and current_model in FAST_WHISPER_MODEL_NAMES:
+                self.app.config.data["model"] = DEFAULT_OPENVINO_MODEL
+            elif backend == "faster-whisper" and current_model.startswith("models\\openvino\\"):
+                self.app.config.data["model"] = "small"
+            self.app.config.save()
         else:
             self.app.config.set(key, value)
         if key in ("model", "profile", "compute", "language"):

@@ -29,6 +29,7 @@ from backends import create_backend
 
 
 SUPPORTED_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
+OPENVINO_EXTENSIONS = {".wav"}
 
 
 def audio_files(samples_dir: Path) -> list[Path]:
@@ -80,6 +81,22 @@ def main() -> int:
                     continue
 
                 for path in files:
+                    if backend_name == "openvino" and path.suffix.lower() not in OPENVINO_EXTENSIONS:
+                        print(f"  SKIP {label} {path.name}: OpenVINO backend currently expects WAV PCM input")
+                        rows.append({
+                            "backend": backend_name,
+                            "device": device,
+                            "model": model_name,
+                            "file": path.name,
+                            "seconds": "",
+                            "audio_seconds": "",
+                            "rtf": "",
+                            "language": "",
+                            "language_probability": "",
+                            "chars": "",
+                            "text": "SKIP: OpenVINO backend currently expects WAV PCM input",
+                        })
+                        continue
                     for run in range(args.repeats):
                         try:
                             result = backend.transcribe(path)

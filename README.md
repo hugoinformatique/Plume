@@ -22,7 +22,7 @@ The desktop test app is:
 python tray_app.py --model small --language fr
 ```
 
-It provides:
+The legacy tray test app provides:
 
 - a small Windows window;
 - a tray icon when supported;
@@ -43,6 +43,16 @@ Optional live preview:
 ```powershell
 python tray_app.py --model small --language fr --live-preview
 ```
+
+The current product UI is:
+
+```powershell
+python plume.py
+```
+
+It adds the glass UI, voice-reactive bubble, configurable hotkey, local history,
+spoken punctuation commands, correction dictionary, and advanced CPU/iGPU/NPU
+profiles.
 
 ## Windows Installer
 

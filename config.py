@@ -29,6 +29,7 @@ DEFAULTS = {
     "autostart": False,
     "metrics": True,               # benchmark log (removable later)
     "vocabulary": [],              # list of {"from": str, "to": str}
+    "history": [],                 # last local dictations, never leaves the PC
 }
 
 

@@ -76,6 +76,8 @@ python plume.py
 - la bulle s'affiche **sans voler le focus** (le texte doit se coller dans le Bloc-notes, pas ailleurs) — **point clé** de cette build web ;
 - le design (fenêtre + bulle), la fluidité ;
 - **onglet Mots** : ajoute un terme technique mal transcrit (ex. *kubernét → Kubernetes*) et revérifie qu'il sort correct ensuite ;
+- **historique local** : vérifie que la dernière dictée apparaît et que les boutons copier / recoller fonctionnent ;
+- **commandes vocales** : dicte par exemple `première ligne nouvelle ligne deuxième ligne point` ;
 - **Réglages** : change le raccourci (clic → tape la combi), la position de la bulle, teste « Mode avancé ».
 
 ---
@@ -86,13 +88,11 @@ Ferme la fenêtre (bouton **Réduire dans la barre**) : Plume reste actif dans l
 
 - **Clic gauche** sur l'icône → ouvre la fenêtre.
 - **Clic droit** → menu :
-  - **Démarrer / Arrêter (F9)**
   - **Afficher la fenêtre**
-  - **Modèle** → base / small / medium / turbo (coche le modèle courant)
-  - **Moteur** → Rapide (CPU) / NPU / iGPU / OpenVINO CPU (coche le profil courant)
+  - **Démarrer / Arrêter**
   - **Quitter**
 
-Changer de modèle ou de moteur ici **recharge le moteur en tâche de fond** (le statut l'indique).
+Changer de modèle ou de moteur se fait dans **Réglages** et recharge le moteur en tâche de fond (le statut l'indique).
 
 ---
 
@@ -116,11 +116,12 @@ python -m pip install -r requirements-openvino.txt
 # Convertir un modèle une fois (dossier, pas un nom HF)
 optimum-cli export openvino --model openai/whisper-small --weight-format int8 models\openvino\whisper-small
 
-# Lancer sur le NPU
-python tray_app.py --backend openvino --device NPU --model models\openvino\whisper-small --language fr
+# Lancer l'app puis choisir NPU/iGPU dans Réglages > Mode avancé
+python plume.py
 ```
 
-Puis dans le menu clic droit, choisis le profil **NPU** ou **iGPU** (pointe le champ « Modèle » de la fenêtre sur `models\openvino\whisper-small`).
+Puis dans **Réglages > Mode avancé**, choisis le profil **NPU** ou **iGPU**.
+Le champ « Modèle » doit pointer sur `models\openvino\whisper-small`.
 
 ### Benchmark comparatif (c'est lui qui tranche NPU vs iGPU vs CPU)
 

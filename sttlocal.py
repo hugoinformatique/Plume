@@ -168,6 +168,31 @@ FILLER_RE = re.compile(
 )
 SPACE_RE = re.compile(r"\s+")
 REPEATED_WORD_RE = re.compile(r"\b(\w{2,})(?:\s+\1\b){1,3}", flags=re.IGNORECASE)
+COMMAND_REPLACEMENTS = (
+    (re.compile(r"\s*\b(?:nouvelle ligne|a la ligne|à la ligne)\b\s*", re.IGNORECASE), "\n"),
+    (re.compile(r"\s*\b(?:nouveau paragraphe)\b\s*", re.IGNORECASE), "\n\n"),
+    (re.compile(r"\s*\bpoint d'interrogation\b\s*", re.IGNORECASE), "? "),
+    (re.compile(r"\s*\bpoint d'exclamation\b\s*", re.IGNORECASE), "! "),
+    (re.compile(r"\s*\bdeux points\b\s*", re.IGNORECASE), ": "),
+    (re.compile(r"\s*\bpoint virgule\b\s*", re.IGNORECASE), "; "),
+    (re.compile(r"\s*\bvirgule\b\s*", re.IGNORECASE), ", "),
+    (re.compile(r"\s*\bpoint\b\s*", re.IGNORECASE), ". "),
+)
+
+
+def apply_spoken_commands(text: str) -> str:
+    """Turn common spoken punctuation/layout commands into text.
+
+    This deliberately stays small and predictable. It is meant for dictation
+    commands ("nouvelle ligne", "virgule"), not full voice control.
+    """
+    for pattern, replacement in COMMAND_REPLACEMENTS:
+        text = pattern.sub(replacement, text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n[ \t]+", "\n", text)
+    text = re.sub(r"([,;:!?])\s+", r"\1 ", text)
+    text = re.sub(r"\.\s+", ". ", text)
+    return text.strip()
 
 
 def clean_transcript(text: str, mode: str = "light") -> str:
@@ -184,6 +209,8 @@ def clean_transcript(text: str, mode: str = "light") -> str:
         text = re.sub(r"\b(je veux dire|tu vois|en fait)\b[, ]*", "", text, flags=re.IGNORECASE)
         text = SPACE_RE.sub(" ", text).strip(" ,")
 
+    text = apply_spoken_commands(text)
+
     if text and text[-1] not in ".!?;:":
         text += "."
     if text:
@@ -191,10 +218,14 @@ def clean_transcript(text: str, mode: str = "light") -> str:
     return text
 
 
-def paste_text(text: str) -> None:
+def copy_text(text: str) -> None:
     import pyperclip
 
     pyperclip.copy(text)
+
+
+def paste_text(text: str) -> None:
+    copy_text(text)
     controller = keyboard.Controller()
     with controller.pressed(keyboard.Key.ctrl):
         controller.press("v")

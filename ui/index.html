@@ -60,7 +60,7 @@
   .wbtn:hover{background:var(--glass);color:var(--ink)}
   .wbtn svg{width:15px;height:15px}
 
-  main{flex:1;display:flex;flex-direction:column;padding:6px 18px 18px;gap:14px;overflow:hidden}
+  main{flex:1;display:flex;flex-direction:column;padding:6px 18px 18px;gap:14px;overflow:auto}
 
   .seg{display:flex;padding:4px;gap:4px;border-radius:16px;background:var(--glass-2);
     border:1px solid var(--hair-soft);backdrop-filter:blur(14px)}
@@ -105,6 +105,16 @@
   .eyebrow{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
   .transcript{font-size:14px;line-height:1.55;color:var(--ink);min-height:44px}
   .transcript.empty{color:var(--muted)}
+  .history{display:flex;flex-direction:column;gap:8px;max-height:160px;overflow:auto}
+  .histitem{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;
+    padding:9px 10px;border-radius:14px;background:var(--glass);border:1px solid var(--hair-soft)}
+  .histtext{font-size:12.5px;line-height:1.35;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .histtime{font-size:10.5px;color:var(--muted);margin-top:2px}
+  .iconbtn{width:30px;height:30px;border:0;border-radius:10px;background:var(--hair-soft);color:var(--ink);
+    display:grid;place-items:center;cursor:pointer;transition:all .35s var(--ease)}
+  .iconbtn:hover{background:var(--ink);color:#fff}
+  @media (prefers-color-scheme: dark){.iconbtn:hover{color:#0f1115}}
+  .iconbtn svg{width:15px;height:15px}
 
   .wordform{display:flex;gap:8px;margin-top:12px}
   .field{flex:1;position:relative}
@@ -139,9 +149,10 @@
   .row + .row{border-top:1px solid var(--hair-soft)}
   .row .lbl{font-size:13px;font-weight:600;color:var(--ink)}
   .row .sub{font-size:11px;color:var(--muted);margin-top:2px}
-  select,.hotcap{font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--glass);
+  select,.hotcap,.modelinput{font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--glass);
     border:1px solid var(--hair-soft);border-radius:11px;padding:9px 12px;outline:none;cursor:pointer;min-width:120px;text-align:center}
   .hotcap{min-width:130px}
+  .modelinput{width:168px;text-align:left;cursor:text}
   .tg{width:44px;height:26px;border-radius:999px;background:var(--hair-soft);position:relative;cursor:pointer;
     transition:background .4s var(--ease);flex:none;border:1px solid var(--hair-soft)}
   .tg::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;
@@ -217,6 +228,13 @@
           <div class="transcript empty" id="transcript">Ta dictée apparaîtra ici, puis se collera dans l'app active.</div>
         </div>
       </div>
+      <div class="card">
+        <div class="inner">
+          <div class="eyebrow">Historique local</div>
+          <div class="history" id="history"></div>
+          <p class="muted-note">Les dernières dictées restent sur ce PC pour pouvoir recopier ou recoller en cas de mauvais focus.</p>
+        </div>
+      </div>
     </section>
 
     <section class="panel" id="tab-mots">
@@ -244,7 +262,14 @@
           </div>
           <div class="row">
             <div><div class="lbl">Modèle</div><div class="sub">Qualité vs vitesse</div></div>
-            <select id="model"><option value="base">Base — rapide</option><option value="small" selected>Small — recommandé</option><option value="medium">Medium — qualité</option><option value="turbo">Turbo</option></select>
+            <input class="modelinput" id="model" list="modelList" value="small" />
+            <datalist id="modelList">
+              <option value="base"></option>
+              <option value="small"></option>
+              <option value="medium"></option>
+              <option value="turbo"></option>
+              <option value="models\openvino\whisper-small"></option>
+            </datalist>
           </div>
           <div class="row">
             <div><div class="lbl">Raccourci</div><div class="sub">Clique puis tape la combinaison</div></div>
@@ -298,7 +323,11 @@
 <script>
   const hasAPI = () => window.pywebview && window.pywebview.api;
   const api = new Proxy({}, { get:(_,k)=> (...a)=> hasAPI() ? window.pywebview.api[k](...a) : Promise.resolve() });
-  const state = { recording:false, words:[{from:"kubernét",to:"Kubernetes"},{from:"",to:"Nginx"},{from:"doquer",to:"Docker"}] };
+  const state = {
+    recording:false,
+    words:[{from:"kubernét",to:"Kubernetes"},{from:"",to:"Nginx"},{from:"doquer",to:"Docker"}],
+    history:[],
+  };
 
   const seg = document.getElementById("seg");
   seg.addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
@@ -322,6 +351,16 @@
   const settingMap = { lang:"language", model:"model", bubble:"bubble_position", cleanup:"cleanup", compute:"compute", profile:"profile" };
   Object.keys(settingMap).forEach(id=>{ const el=document.getElementById(id);
     el && el.addEventListener("change", ()=> api.set_setting(settingMap[id], el.value)); });
+  document.getElementById("model").addEventListener("blur", e=>api.set_setting("model", e.target.value.trim() || "small"));
+  document.getElementById("profile").addEventListener("change", e=>{
+    const model=document.getElementById("model");
+    if(e.target.value.startsWith("ov-") && ["base","small","medium","turbo"].includes(model.value)){
+      model.value="models\\openvino\\whisper-small";
+    }
+    if(e.target.value==="fw-cpu" && model.value.startsWith("models\\openvino\\")){
+      model.value="small";
+    }
+  });
   const tgPaste=document.getElementById("tgPaste"), tgStartup=document.getElementById("tgStartup");
   tgPaste.addEventListener("click", ()=>{ tgPaste.classList.toggle("on"); api.set_setting("autopaste", tgPaste.classList.contains("on")); });
   tgStartup.addEventListener("click", ()=>{ tgStartup.classList.toggle("on"); api.set_setting("autostart", tgStartup.classList.contains("on")); });
@@ -334,7 +373,11 @@
     if(c.hotkey_display){ document.getElementById("hotcap").textContent=c.hotkey_display; document.getElementById("hotHint").textContent=c.hotkey_display; }
   }
   window.addEventListener("pywebviewready", ()=>{
-    api.get_state().then(s=>{ if(s&&s.words){ state.words=s.words; renderChips(); } if(s&&s.config) applyConfig(s.config); });
+    api.get_state().then(s=>{
+      if(s&&s.words){ state.words=s.words; renderChips(); }
+      if(s&&s.history){ state.history=s.history; renderHistory(); }
+      if(s&&s.config) applyConfig(s.config);
+    });
   });
 
   const chips=document.getElementById("chips");
@@ -352,6 +395,21 @@
     renderChips(); api.add_word(from,to);
   });
 
+  const historyEl=document.getElementById("history");
+  function shortTime(ts){ try{return new Date(ts).toLocaleString([], {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});}catch{return "";} }
+  function renderHistory(){ historyEl.innerHTML="";
+    if(!state.history.length){ historyEl.innerHTML='<div class="transcript empty">Aucune dictée récente.</div>'; return; }
+    state.history.forEach((h,i)=>{ const row=document.createElement("div"); row.className="histitem";
+      row.innerHTML=`<div><div class="histtext"></div><div class="histtime">${shortTime(h.timestamp)}</div></div>
+        <button class="iconbtn" title="Copier" data-copy="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
+        <button class="iconbtn" title="Recoller" data-paste="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8l2 2v14H6V6l2-2Z"/><path d="M9 12h6M9 16h6"/></svg></button>`;
+      row.querySelector(".histtext").textContent=h.text || "";
+      historyEl.appendChild(row);
+    });
+    historyEl.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",()=>api.copy_history(+b.dataset.copy)));
+    historyEl.querySelectorAll("[data-paste]").forEach(b=>b.addEventListener("click",()=>api.paste_history(+b.dataset.paste)));
+  }
+
   const hotcap=document.getElementById("hotcap");
   hotcap.addEventListener("click", ()=>{ hotcap.textContent="Tape la combinaison…";
     const h=e=>{ e.preventDefault(); const parts=[]; if(e.ctrlKey)parts.push("Ctrl"); if(e.altKey)parts.push("Alt"); if(e.shiftKey)parts.push("Maj");
@@ -364,8 +422,10 @@
     setStatus:(t,mini)=>{ document.getElementById("status").textContent=t; if(mini)document.getElementById("statusMini").textContent=mini; },
     setRecording,
     setTranscript:(t)=>{ const el=document.getElementById("transcript"); el.textContent=t||"—"; el.classList.toggle("empty",!t); },
+    setHistory:(items)=>{ state.history=Array.isArray(items)?items:[]; renderHistory(); },
   };
   renderChips();
+  renderHistory();
 </script>
 </body>
 </html>
