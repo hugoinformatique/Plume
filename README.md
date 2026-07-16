@@ -2,6 +2,8 @@
 
 Windows-first MVP for local voice dictation.
 
+> **Just want to test it?** See [GUIDE_TEST.md](GUIDE_TEST.md) (français) — how to get the installer, run it, and report back.
+
 Goal:
 
 - press a global hotkey;
@@ -53,7 +55,7 @@ INSTALLER_WINDOWS.md
 The intended user-facing installer is:
 
 ```text
-Plume-Setup-0.2.0.exe
+Plume-Setup-0.3.0.exe
 ```
 
 ## Quick Start On Windows
