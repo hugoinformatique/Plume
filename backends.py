@@ -1,4 +1,4 @@
-"""Pluggable speech-to-text backends for STTLocal.
+"""Pluggable speech-to-text backends for Plume.
 
 Design goal (see project decision): keep a reliable CPU baseline with
 ``faster-whisper`` and add an interchangeable OpenVINO backend that can target

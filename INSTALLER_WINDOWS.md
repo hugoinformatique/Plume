@@ -49,8 +49,8 @@ Install:
 Then run:
 
 ```powershell
-git clone https://github.com/hugoinformatique/STTLocal.git
-cd STTLocal
+git clone https://github.com/hugoinformatique/Plume.git
+cd Plume
 .\scripts\build_windows.ps1
 ```
 

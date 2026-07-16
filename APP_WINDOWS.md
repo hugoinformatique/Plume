@@ -27,8 +27,8 @@ Manual install:
 
 ```powershell
 cd $env:USERPROFILE\Downloads
-git clone https://github.com/hugoinformatique/STTLocal.git
-cd STTLocal
+git clone https://github.com/hugoinformatique/Plume.git
+cd Plume
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -38,7 +38,7 @@ python -m pip install -r requirements.txt
 If the repo is already cloned:
 
 ```powershell
-cd $env:USERPROFILE\Downloads\STTLocal
+cd $env:USERPROFILE\Downloads\Plume
 git pull
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt

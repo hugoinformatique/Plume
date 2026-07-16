@@ -33,8 +33,8 @@ Quand c'est vert, ouvre le run → section **Artifacts** → télécharge `Plume
 Prérequis : Python 3.12, Git, [Inno Setup 6](https://jrsoftware.org/isdl.php).
 
 ```powershell
-git clone https://github.com/hugoinformatique/STTLocal.git
-cd STTLocal
+git clone https://github.com/hugoinformatique/Plume.git
+cd Plume
 git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
@@ -44,8 +44,8 @@ Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.3.0
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
 ```powershell
-git clone https://github.com/hugoinformatique/STTLocal.git
-cd STTLocal
+git clone https://github.com/hugoinformatique/Plume.git
+cd Plume
 git checkout feat/plume-pluggable-backends
 .\install_windows.ps1
 .\.venv\Scripts\Activate.ps1

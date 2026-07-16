@@ -36,8 +36,8 @@ Expected: Python 3.11 or 3.12. Prefer 3.12.
 
 ```powershell
 cd $env:USERPROFILE\Downloads
-git clone https://github.com/hugoinformatique/STTLocal.git
-cd STTLocal
+git clone https://github.com/hugoinformatique/Plume.git
+cd Plume
 ```
 
 If Git is not installed:
