@@ -9,6 +9,6 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
-".venv\Scripts\python.exe" tray_app.py --model small --language fr
+".venv\Scripts\python.exe" plume.py
 
 pause

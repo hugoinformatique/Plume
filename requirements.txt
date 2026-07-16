@@ -6,3 +6,5 @@ pyperclip==1.9.0
 Pillow==10.4.0
 pystray==0.19.5
 requests>=2.31,<3
+pywebview>=5.3,<6
+pythonnet>=3.0.3; sys_platform == "win32"

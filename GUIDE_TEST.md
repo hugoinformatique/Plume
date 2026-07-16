@@ -16,11 +16,11 @@ La CI construit l'installeur Windows automatiquement. Pour déclencher une relea
 
 ```bash
 # depuis le repo, sur le commit à tester
-git tag v0.3.1
-git push origin v0.3.1
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
-Puis, sur GitHub : onglet **Releases** → `v0.3.1` → télécharge **`Plume-Setup-0.3.1.exe`**.
+Puis, sur GitHub : onglet **Releases** → `v0.4.0` → télécharge **`Plume-Setup-0.4.0.exe`**.
 (Le build prend ~5–10 min. Tu peux suivre l'avancement dans l'onglet **Actions**.)
 
 ### Option B — Sans tag : artifact d'un build manuel
@@ -39,7 +39,7 @@ git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
 
-Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.3.1.exe`.
+Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.0.exe`.
 
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
@@ -49,18 +49,18 @@ cd Plume
 git checkout feat/plume-pluggable-backends
 .\install_windows.ps1
 .\.venv\Scripts\Activate.ps1
-python tray_app.py --model small --language fr
+python plume.py
 ```
 
 ---
 
 ## 2. Installer et lancer
 
-1. Lance `Plume-Setup-0.3.1.exe` (installation sans droits admin, dans ton profil utilisateur).
-2. Ouvre **Plume** depuis le menu Démarrer.
-3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt — F9 pour dicter »** quand le moteur est chaud.
+1. Lance `Plume-Setup-0.4.0.exe` (installation sans droits admin, dans ton profil utilisateur).
+2. Ouvre **Plume** depuis le menu Démarrer. La fenêtre est une **app native** (verre dépoli, noir & blanc), pas un navigateur.
+3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt à dicter »** quand le moteur est chaud.
 
-> Pour une version entièrement hors-ligne (sans ce téléchargement), on bundlera les modèles plus tard.
+> Requiert **WebView2** (déjà présent sur Windows 11) pour le rendu de l'interface. Pour une version entièrement hors-ligne (sans le download du modèle), on bundlera les modèles plus tard.
 
 ---
 
@@ -68,14 +68,15 @@ python tray_app.py --model small --language fr
 
 1. Ouvre le Bloc-notes (ou un mail, Word, ton logiciel métier).
 2. Clique **dans** la zone de texte.
-3. Appuie sur **F9** → une **bulle flottante « À l'écoute… »** apparaît en bas au milieu de l'écran, avec une animation.
-4. Parle en français, 5–15 s.
-5. Réappuie sur **F9** → la bulle passe en **« Transcription… »**, puis le texte est **collé automatiquement** dans l'app active.
+3. Appuie sur **Ctrl + Espace** (raccourci par défaut, configurable dans Réglages) → une **bulle flottante « À l'écoute… »** apparaît en bas au milieu, barres **réactives à ta voix**.
+4. Parle en français, 5–15 s (varie le volume pour voir les barres bouger).
+5. Réappuie sur **Ctrl + Espace** → la bulle passe en **« Transcription… »**, puis le texte est **collé** dans l'app active.
 
 À vérifier :
-- la bulle s'affiche **sans voler le focus** (le texte doit bien se coller dans le Bloc-notes, pas ailleurs) ;
-- l'animation est fluide et lisible ;
-- position de la bulle : réglable **bas/haut** dans la fenêtre (champ « Bulle »).
+- la bulle s'affiche **sans voler le focus** (le texte doit se coller dans le Bloc-notes, pas ailleurs) — **point clé** de cette build web ;
+- le design (fenêtre + bulle), la fluidité ;
+- **onglet Mots** : ajoute un terme technique mal transcrit (ex. *kubernét → Kubernetes*) et revérifie qu'il sort correct ensuite ;
+- **Réglages** : change le raccourci (clic → tape la combi), la position de la bulle, teste « Mode avancé ».
 
 ---
 

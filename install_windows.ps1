@@ -22,5 +22,5 @@ python -m pip install -r requirements.txt
 
 Write-Host ""
 Write-Host "Installation terminee."
-Write-Host "Lancement conseille :"
-Write-Host "python tray_app.py --model base --language fr"
+Write-Host "Lancement :"
+Write-Host "python plume.py"
