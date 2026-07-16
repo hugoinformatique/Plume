@@ -27,6 +27,19 @@ BORDER = "#E2E5EF"
 FONT_UI = "Segoe UI"
 
 
+def _hex_to_rgb(value: str) -> tuple[int, int, int]:
+    value = value.lstrip("#")
+    return tuple(int(value[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+
+
+def mix(color_a: str, color_b: str, t: float) -> str:
+    """Blend two hex colors. t=0 -> color_a, t=1 -> color_b."""
+    a = _hex_to_rgb(color_a)
+    b = _hex_to_rgb(color_b)
+    r = tuple(round(a[i] * (1 - t) + b[i] * t) for i in range(3))
+    return "#%02X%02X%02X" % r
+
+
 def _feather_layer(size: int, fg: str, spine: str):
     """Draw a stylised feather (vane + spine + barbs) on a transparent layer."""
     from PIL import Image, ImageDraw

@@ -22,12 +22,22 @@ class Recorder:
         self.stream: sd.InputStream | None = None
         self.started_at: float | None = None
         self._lock = Lock()
+        self._level = 0.0  # smoothed mic level in [0, 1], for the UI meter
 
     def _callback(self, indata, frames, time_info, status) -> None:
         if status:
             print(f"[audio] {status}")
+        # Smoothed RMS level for the listening bubble (cheap, lock-free read).
+        block = np.asarray(indata, dtype=np.float32)
+        if block.size:
+            rms = float(np.sqrt(np.mean(np.square(block))))
+            self._level = 0.55 * self._level + 0.45 * min(1.0, rms * 8.0)
         with self._lock:
             self.frames.append(indata.copy())
+
+    def current_level(self) -> float:
+        """Latest smoothed microphone level in [0, 1] (0 when not recording)."""
+        return self._level if self.stream is not None else 0.0
 
     @property
     def is_recording(self) -> bool:
@@ -44,6 +54,7 @@ class Recorder:
             return
         with self._lock:
             self.frames = []
+        self._level = 0.0
         self.started_at = time.perf_counter()
         self.stream = sd.InputStream(
             samplerate=self.sample_rate,

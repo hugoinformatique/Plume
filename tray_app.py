@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import queue
 import sys
 import tempfile
@@ -10,7 +11,8 @@ from pathlib import Path
 
 from sttlocal import DictationEngine, Recorder, clean_transcript, paste_text
 from ui_theme import (
-    ACCENT, BORDER, BRAND, CARD, DANGER, MUTED, SURFACE, TEXT_DARK, FONT_UI,
+    ACCENT, BORDER, BRAND, BRAND_DARK, CARD, DANGER, MUTED, SURFACE, TEXT_DARK,
+    FONT_UI, mix,
 )
 
 
@@ -66,13 +68,89 @@ def load_gui_dependencies() -> None:
     ListeningBubble = bubble_cls
 
 
+class RecordButton:
+    """A round, canvas-drawn record / stop button with hover and a recording pulse."""
+
+    SIZE = 128
+    RADIUS = 44
+
+    def __init__(self, parent, command, bg: str) -> None:
+        self.command = command
+        self.bg = bg
+        self.state = "idle"  # idle | recording
+        self._pulse = 0.0
+        self._pulse_id = None
+        self._hover = False
+        self.canvas = tk.Canvas(parent, width=self.SIZE, height=self.SIZE,
+                                bg=bg, highlightthickness=0, cursor="hand2")
+        self.canvas.bind("<Button-1>", lambda _e: self.command())
+        self.canvas.bind("<Enter>", self._on_enter)
+        self.canvas.bind("<Leave>", self._on_leave)
+        self._draw()
+
+    def pack(self, **kwargs):
+        self.canvas.pack(**kwargs)
+
+    def _on_enter(self, _e) -> None:
+        self._hover = True
+        self._draw()
+
+    def _on_leave(self, _e) -> None:
+        self._hover = False
+        self._draw()
+
+    def set_state(self, state: str) -> None:
+        self.state = state
+        if state == "recording" and self._pulse_id is None:
+            self._animate_pulse()
+        elif state != "recording" and self._pulse_id is not None:
+            self.canvas.after_cancel(self._pulse_id)
+            self._pulse_id = None
+            self._pulse = 0.0
+        self._draw()
+
+    def _animate_pulse(self) -> None:
+        self._pulse += 0.12
+        self._draw()
+        self._pulse_id = self.canvas.after(40, self._animate_pulse)
+
+    def _draw(self) -> None:
+        c = self.canvas
+        c.delete("all")
+        cx = cy = self.SIZE // 2
+        r = self.RADIUS
+        color = DANGER if self.state == "recording" else ACCENT
+        white = "#FFFFFF"
+
+        if self.state == "recording":
+            grow = 6 + 5 * (0.5 + 0.5 * math.sin(self._pulse))
+            c.create_oval(cx - r - grow, cy - r - grow, cx + r + grow, cy + r + grow,
+                          outline=mix(color, self.bg, 0.72), width=2)
+        elif self._hover:
+            c.create_oval(cx - r - 5, cy - r - 5, cx + r + 5, cy + r + 5,
+                          outline=mix(color, self.bg, 0.65), width=2)
+
+        c.create_oval(cx - r, cy - r, cx + r, cy + r, fill=color, outline="")
+
+        if self.state == "recording":
+            c.create_rectangle(cx - 12, cy - 12, cx + 12, cy + 12, fill=white, outline="")
+        else:
+            # Simple microphone glyph.
+            c.create_oval(cx - 9, cy - 22, cx + 9, cy - 4, fill=white, outline="")
+            c.create_rectangle(cx - 9, cy - 13, cx + 9, cy - 4, fill=white, outline="")
+            c.create_arc(cx - 15, cy - 12, cx + 15, cy + 12, start=200, extent=140,
+                         style="arc", outline=white, width=3)
+            c.create_line(cx, cy + 10, cx, cy + 20, fill=white, width=3)
+            c.create_line(cx - 10, cy + 20, cx + 10, cy + 20, fill=white, width=3)
+
+
 class TrayDictationApp:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.root = tk.Tk()
         self.root.title(APP_NAME)
-        self.root.geometry("580x560")
-        self.root.minsize(520, 520)
+        self.root.geometry("560x650")
+        self.root.minsize(520, 600)
         self.root.configure(bg=SURFACE)
         self.root.protocol("WM_DELETE_WINDOW", self.hide_window)
 
@@ -139,92 +217,83 @@ class TrayDictationApp:
             pass
 
     # --- UI ------------------------------------------------------------------
+    def _card(self, parent, title: str, expand: bool = False):
+        tk.Label(parent, text=title.upper(), bg=SURFACE, fg=MUTED,
+                 font=(FONT_UI, 9, "bold")).pack(anchor="w", padx=24, pady=(10, 3))
+        card = tk.Frame(parent, bg=CARD, highlightbackground=BORDER, highlightthickness=1)
+        card.pack(fill="both", expand=expand, padx=20, pady=(0, 2))
+        return card
+
     def _build_ui(self) -> None:
         style = ttk.Style(self.root)
         try:
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("TFrame", background=SURFACE)
-        style.configure("Card.TLabelframe", background=CARD, bordercolor=BORDER)
-        style.configure("Card.TLabelframe.Label", background=SURFACE, foreground=MUTED, font=(FONT_UI, 10, "bold"))
-        style.configure("TLabel", background=CARD, foreground=TEXT_DARK, font=(FONT_UI, 10))
-        style.configure("Muted.TLabel", background=SURFACE, foreground=MUTED, font=(FONT_UI, 10))
-        style.configure("TCombobox", font=(FONT_UI, 10))
-        style.configure("TCheckbutton", background=CARD, foreground=TEXT_DARK, font=(FONT_UI, 10))
+        style.configure("TCombobox", fieldbackground=CARD, background=CARD, font=(FONT_UI, 10))
+        style.configure("TEntry", fieldbackground=CARD, font=(FONT_UI, 10))
+        style.configure("Plume.TCheckbutton", background=CARD, foreground=TEXT_DARK, font=(FONT_UI, 10))
 
         # Header ---------------------------------------------------------------
         header = tk.Frame(self.root, bg=SURFACE)
-        header.pack(fill="x", padx=20, pady=(18, 8))
-        logo = self._icon_photo(44)
+        header.pack(fill="x", padx=22, pady=(20, 4))
+        logo = self._icon_photo(46)
         if logo is not None:
             tk.Label(header, image=logo, bg=SURFACE).pack(side="left", padx=(0, 12))
         title_box = tk.Frame(header, bg=SURFACE)
         title_box.pack(side="left", anchor="w")
-        tk.Label(title_box, text=APP_NAME, bg=SURFACE, fg=TEXT_DARK, font=(FONT_UI, 20, "bold")).pack(anchor="w")
+        tk.Label(title_box, text=APP_NAME, bg=SURFACE, fg=TEXT_DARK, font=(FONT_UI, 22, "bold")).pack(anchor="w")
         tk.Label(title_box, text="Dictee locale - rien ne quitte votre PC",
                  bg=SURFACE, fg=MUTED, font=(FONT_UI, 10)).pack(anchor="w")
 
-        # Record button --------------------------------------------------------
-        record_row = tk.Frame(self.root, bg=SURFACE)
-        record_row.pack(fill="x", padx=20, pady=(6, 4))
-        self.toggle_button = tk.Button(
-            record_row, text="Demarrer la dictee  (F9)", command=self.toggle_recording,
-            bg=ACCENT, fg="#08251E", activebackground=ACCENT, activeforeground="#08251E",
-            font=(FONT_UI, 12, "bold"), relief="flat", bd=0, padx=16, pady=12, cursor="hand2",
-        )
-        self.toggle_button.pack(fill="x")
-        self.status_dot = tk.Label(self.root, textvariable=self.status_var, bg=SURFACE, fg=MUTED,
-                                   font=(FONT_UI, 10), anchor="w")
-        self.status_dot.pack(fill="x", padx=22, pady=(2, 8))
+        # Record hero ----------------------------------------------------------
+        hero = tk.Frame(self.root, bg=SURFACE)
+        hero.pack(fill="x", pady=(8, 0))
+        self.record_btn = RecordButton(hero, command=self.toggle_recording, bg=SURFACE)
+        self.record_btn.pack()
+        tk.Label(self.root, textvariable=self.status_var, bg=SURFACE, fg=MUTED,
+                 font=(FONT_UI, 10)).pack(pady=(2, 6))
 
-        # Settings -------------------------------------------------------------
-        settings = ttk.LabelFrame(self.root, text=" Moteur ", style="Card.TLabelframe")
-        settings.pack(fill="x", padx=20, pady=6)
-        pad = {"padx": 10, "pady": 6}
+        # Settings card --------------------------------------------------------
+        card = self._card(self.root, "Reglages")
+        grid = tk.Frame(card, bg=CARD)
+        grid.pack(fill="x", padx=14, pady=(10, 4))
 
-        ttk.Label(settings, text="Modele").grid(row=0, column=0, sticky="w", **pad)
-        ttk.Combobox(settings, textvariable=self.model_var, values=MODELS, width=16).grid(row=0, column=1, sticky="w", **pad)
-        ttk.Label(settings, text="Langue").grid(row=0, column=2, sticky="w", **pad)
-        ttk.Entry(settings, textvariable=self.language_var, width=8).grid(row=0, column=3, sticky="w", **pad)
+        def field(row, col, label, widget):
+            tk.Label(grid, text=label, bg=CARD, fg=TEXT_DARK, font=(FONT_UI, 10)).grid(
+                row=row, column=col * 2, sticky="w", padx=(0 if col == 0 else 18, 8), pady=6)
+            widget.grid(row=row, column=col * 2 + 1, sticky="w", pady=6)
 
-        ttk.Label(settings, text="Backend").grid(row=1, column=0, sticky="w", **pad)
-        ttk.Combobox(settings, textvariable=self.backend_var, values=BACKENDS, width=16).grid(row=1, column=1, sticky="w", **pad)
-        ttk.Label(settings, text="Device").grid(row=1, column=2, sticky="w", **pad)
-        ttk.Entry(settings, textvariable=self.device_var, width=8).grid(row=1, column=3, sticky="w", **pad)
+        field(0, 0, "Modele", ttk.Combobox(grid, textvariable=self.model_var, values=MODELS, width=15))
+        field(0, 1, "Langue", ttk.Entry(grid, textvariable=self.language_var, width=9))
+        field(1, 0, "Backend", ttk.Combobox(grid, textvariable=self.backend_var, values=BACKENDS, width=15))
+        field(1, 1, "Device", ttk.Entry(grid, textvariable=self.device_var, width=9))
+        field(2, 0, "Compute", ttk.Combobox(grid, textvariable=self.compute_var, values=COMPUTE_TYPES, width=15))
+        field(2, 1, "Nettoyage", ttk.Combobox(grid, textvariable=self.cleanup_var, values=CLEANUP_MODES, width=9))
+        field(3, 0, "Bulle", ttk.Combobox(grid, textvariable=self.position_var, values=BUBBLE_POSITIONS, width=15))
+        ttk.Checkbutton(grid, text="Apercu pendant l'enregistrement", style="Plume.TCheckbutton",
+                        variable=self.live_preview_var).grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 2))
 
-        ttk.Label(settings, text="Compute").grid(row=2, column=0, sticky="w", **pad)
-        ttk.Combobox(settings, textvariable=self.compute_var, values=COMPUTE_TYPES, width=16).grid(row=2, column=1, sticky="w", **pad)
-        ttk.Label(settings, text="Nettoyage").grid(row=2, column=2, sticky="w", **pad)
-        ttk.Combobox(settings, textvariable=self.cleanup_var, values=CLEANUP_MODES, width=8).grid(row=2, column=3, sticky="w", **pad)
+        tk.Button(card, text="Appliquer / recharger le moteur", command=self._apply_settings,
+                  bg=BRAND, fg="#FFFFFF", activebackground=BRAND_DARK, activeforeground="#FFFFFF",
+                  font=(FONT_UI, 10, "bold"), relief="flat", bd=0, pady=9, cursor="hand2").pack(
+            fill="x", padx=14, pady=(2, 12))
 
-        ttk.Label(settings, text="Bulle").grid(row=3, column=0, sticky="w", **pad)
-        ttk.Combobox(settings, textvariable=self.position_var, values=BUBBLE_POSITIONS, width=16).grid(row=3, column=1, sticky="w", **pad)
-        ttk.Checkbutton(settings, text="Apercu pendant l'enregistrement", variable=self.live_preview_var).grid(
-            row=3, column=2, columnspan=2, sticky="w", **pad
-        )
-
-        apply_btn = tk.Button(settings, text="Appliquer / recharger le moteur", command=self._apply_settings,
-                              bg=BRAND, fg="#FFFFFF", activebackground=BRAND, activeforeground="#FFFFFF",
-                              font=(FONT_UI, 10, "bold"), relief="flat", bd=0, padx=12, pady=8, cursor="hand2")
-        apply_btn.grid(row=4, column=0, columnspan=4, sticky="we", **pad)
-
-        # Output ---------------------------------------------------------------
-        out = ttk.LabelFrame(self.root, text=" Derniere transcription ", style="Card.TLabelframe")
-        out.pack(fill="both", expand=True, padx=20, pady=(6, 8))
-        self.output = tk.Text(out, height=8, wrap="word", relief="flat", bd=0,
+        # Output card ----------------------------------------------------------
+        ocard = self._card(self.root, "Derniere transcription", expand=True)
+        self.output = tk.Text(ocard, height=5, wrap="word", relief="flat", bd=0,
                               bg=CARD, fg=TEXT_DARK, font=(FONT_UI, 11), padx=10, pady=8)
-        self.output.pack(fill="both", expand=True, padx=8, pady=8)
-        self.output.insert("end", "F9 pour demarrer/arreter. Le texte est colle dans l'application active.\n")
+        self.output.pack(fill="both", expand=True, padx=12, pady=12)
+        self.output.insert("end", "F9 pour demarrer / arreter. Le texte est colle dans l'app active.\n")
         self.output.configure(state="disabled")
 
         # Footer ---------------------------------------------------------------
         footer = tk.Frame(self.root, bg=SURFACE)
-        footer.pack(fill="x", padx=20, pady=(0, 16))
+        footer.pack(fill="x", padx=24, pady=(6, 16))
         tk.Button(footer, text="Reduire dans la barre", command=self.hide_window,
-                  bg=CARD, fg=TEXT_DARK, relief="flat", bd=1, padx=12, pady=6, cursor="hand2").pack(side="left")
+                  bg=SURFACE, fg=MUTED, relief="flat", bd=0, font=(FONT_UI, 10), cursor="hand2").pack(side="left")
         tk.Button(footer, text="Quitter", command=self.quit,
-                  bg=CARD, fg=DANGER, relief="flat", bd=1, padx=12, pady=6, cursor="hand2").pack(side="right")
+                  bg=SURFACE, fg=DANGER, relief="flat", bd=0, font=(FONT_UI, 10), cursor="hand2").pack(side="right")
 
     # --- engine (kept warm) --------------------------------------------------
     def _engine_key(self) -> tuple:
@@ -368,17 +437,16 @@ class TrayDictationApp:
         self.replace_output("")
         self.recorder.start()
         self.status_var.set("Enregistrement... F9 pour arreter")
-        self.toggle_button.configure(text="Arreter  (F9)", bg=DANGER, activebackground=DANGER, fg="#FFFFFF")
+        self.record_btn.set_state("recording")
         if self.bubble is not None:
             self.bubble.position = self.position_var.get()
-            self.bubble.show("listening", "A l'ecoute...")
+            self.bubble.show("listening", "A l'ecoute...", level_provider=self.recorder.current_level)
         if self.live_preview_var.get():
             threading.Thread(target=self._preview_loop, daemon=True).start()
 
     def _stop_recording(self) -> None:
         path = self.recorder.stop_to_wav(self.recordings_dir)
-        self.toggle_button.configure(text="Demarrer la dictee  (F9)", bg=ACCENT,
-                                     activebackground=ACCENT, fg="#08251E")
+        self.record_btn.set_state("idle")
         if path is None:
             self.status_var.set("Enregistrement trop court")
             if self.bubble is not None:
