@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Plume</title>
+<style>
+  :root{
+    --ink:#0f1115; --ink-2:#3a3f47; --muted:#8b909a;
+    --accent:#0f1115;            /* monochrome accent = ink */
+    --glass:rgba(255,255,255,.62); --glass-2:rgba(255,255,255,.40);
+    --hair:rgba(255,255,255,.9); --hair-soft:rgba(15,17,21,.09);
+    --shadow:0 18px 46px -22px rgba(20,24,33,.4);
+    --radius:26px; --radius-in:18px;
+    --ease:cubic-bezier(.32,.72,0,1);
+    --font:"Segoe UI Variable Display","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ink:#f2f3f6; --ink-2:#c3c7d0; --muted:#868b96; --accent:#f2f3f6;
+      --glass:rgba(255,255,255,.06); --glass-2:rgba(255,255,255,.04);
+      --hair:rgba(255,255,255,.12); --hair-soft:rgba(255,255,255,.08);
+      --shadow:0 22px 56px -24px rgba(0,0,0,.8);
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--font); color:var(--ink);
+    background:
+      radial-gradient(120% 70% at 50% -10%, rgba(255,255,255,.9), transparent 60%),
+      linear-gradient(170deg,#f5f6f8 0%,#eef0f2 55%,#e9ebee 100%);
+    background-attachment:fixed;
+    overflow:hidden; user-select:none; -webkit-user-select:none;
+    display:flex; flex-direction:column; min-height:100dvh;
+  }
+  @media (prefers-color-scheme: dark){
+    body{background:
+      radial-gradient(120% 70% at 50% -10%, rgba(255,255,255,.08), transparent 60%),
+      linear-gradient(170deg,#0c0d10 0%,#101115 55%,#0d0e12 100%);}
+  }
+  body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:60;opacity:.035;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");}
+
+  /* top bar */
+  .topbar{display:flex;align-items:center;gap:10px;padding:14px 16px 8px}
+  .pywebview-drag-region{-webkit-app-region:drag}
+  .brand{display:flex;align-items:center;gap:9px;flex:1}
+  .logo{width:26px;height:26px;flex:none;color:var(--ink);display:grid;place-items:center}
+  .logo svg{width:24px;height:24px}
+  .brand h1{font-size:16px;font-weight:700;letter-spacing:-.01em}
+  .statuschip{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);
+    padding:5px 11px;border-radius:999px;background:var(--glass-2);
+    border:1px solid var(--hair-soft);backdrop-filter:blur(12px)}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--muted);transition:background .4s var(--ease)}
+  body.rec .dot{background:var(--ink);animation:blink 1.3s var(--ease) infinite}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+  .wbtn{width:26px;height:26px;border:0;border-radius:8px;background:transparent;color:var(--muted);
+    display:grid;place-items:center;cursor:pointer;transition:all .4s var(--ease);-webkit-app-region:no-drag}
+  .wbtn:hover{background:var(--glass);color:var(--ink)}
+  .wbtn svg{width:15px;height:15px}
+
+  main{flex:1;display:flex;flex-direction:column;padding:6px 18px 18px;gap:14px;overflow:hidden}
+
+  .seg{display:flex;padding:4px;gap:4px;border-radius:16px;background:var(--glass-2);
+    border:1px solid var(--hair-soft);backdrop-filter:blur(14px)}
+  .seg button{flex:1;border:0;background:transparent;color:var(--muted);font-family:inherit;
+    font-size:12.5px;font-weight:600;padding:9px 8px;border-radius:12px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;gap:7px;transition:all .5s var(--ease)}
+  .seg button svg{width:15px;height:15px}
+  .seg button.active{color:var(--ink);background:var(--glass);
+    box-shadow:0 6px 16px -12px rgba(20,24,33,.5), inset 0 1px 1px var(--hair)}
+
+  .panel{display:none;flex-direction:column;gap:14px;animation:enter .55s var(--ease) both}
+  .panel.show{display:flex}
+  @keyframes enter{from{opacity:0;transform:translateY(14px);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
+
+  .card{border-radius:var(--radius);padding:6px;background:var(--glass-2);
+    border:1px solid var(--hair-soft);box-shadow:var(--shadow);backdrop-filter:blur(30px) saturate(1.1)}
+  .card .inner{border-radius:var(--radius-in);background:var(--glass);
+    border:1px solid var(--hair);box-shadow:inset 0 1px 1px var(--hair);padding:18px}
+
+  .hero{display:flex;flex-direction:column;align-items:center;gap:14px;padding:22px 18px 20px}
+  .recwrap{position:relative;width:128px;height:128px;display:grid;place-items:center}
+  .ring{position:absolute;inset:8px;border-radius:50%;border:1px solid var(--hair-soft);transition:all .6s var(--ease)}
+  body.rec .ring{inset:0;border-color:rgba(15,17,21,.18);animation:ripple 1.8s var(--ease) infinite}
+  @media (prefers-color-scheme: dark){body.rec .ring{border-color:rgba(255,255,255,.2)}}
+  @keyframes ripple{0%{transform:scale(.9);opacity:.7}100%{transform:scale(1.15);opacity:0}}
+  .recbtn{position:relative;width:100px;height:100px;border-radius:50%;border:0;cursor:pointer;
+    background:var(--glass);border:1px solid var(--hair);color:var(--ink);
+    box-shadow:0 16px 34px -18px rgba(20,24,33,.55), inset 0 2px 2px var(--hair), inset 0 -8px 16px rgba(20,24,33,.06);
+    display:grid;place-items:center;transition:transform .5s var(--ease),background .5s var(--ease)}
+  .recbtn:active{transform:scale(.95)}
+  .recbtn svg{width:36px;height:36px}
+  .recbtn .stop{display:none;width:24px;height:24px;border-radius:6px;background:currentColor}
+  body.rec .recbtn{background:var(--ink);color:#fff}
+  @media (prefers-color-scheme: dark){body.rec .recbtn{color:#0f1115}}
+  body.rec .recbtn .mic{display:none}
+  body.rec .recbtn .stop{display:block}
+  .hero .status{font-size:13.5px;color:var(--ink-2);font-weight:600}
+  .hero .hint{font-size:11.5px;color:var(--muted)}
+  .kbd{font-family:inherit;font-size:11px;font-weight:600;color:var(--ink-2);
+    background:var(--glass);border:1px solid var(--hair-soft);border-bottom-width:2px;border-radius:7px;padding:2px 7px}
+
+  .eyebrow{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+  .transcript{font-size:14px;line-height:1.55;color:var(--ink);min-height:44px}
+  .transcript.empty{color:var(--muted)}
+
+  .wordform{display:flex;gap:8px;margin-top:12px}
+  .field{flex:1;position:relative}
+  .field input{width:100%;font-family:inherit;font-size:13px;color:var(--ink);
+    background:var(--glass);border:1px solid var(--hair-soft);border-radius:12px;padding:11px 12px;outline:none;
+    transition:border-color .4s var(--ease),box-shadow .4s var(--ease)}
+  .field input::placeholder{color:var(--muted)}
+  .field input:focus{border-color:rgba(15,17,21,.4);box-shadow:0 0 0 4px rgba(15,17,21,.07)}
+  @media (prefers-color-scheme: dark){.field input:focus{border-color:rgba(255,255,255,.35);box-shadow:0 0 0 4px rgba(255,255,255,.08)}}
+  .arrow{align-self:center;color:var(--muted)}
+  .addbtn{border:0;border-radius:12px;padding:0 14px;background:var(--accent);
+    color:var(--glass) ;color:#fff;font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;
+    display:flex;align-items:center;gap:6px;transition:transform .4s var(--ease),opacity .4s var(--ease)}
+  @media (prefers-color-scheme: dark){.addbtn{color:#0f1115}}
+  .addbtn:hover{transform:translateY(-1px)}
+  .addbtn:active{transform:scale(.97)}
+  .addbtn svg{width:15px;height:15px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;max-height:150px;overflow:auto}
+  .chip{display:flex;align-items:center;gap:8px;padding:7px 8px 7px 12px;border-radius:999px;
+    background:var(--glass);border:1px solid var(--hair);font-size:12.5px;color:var(--ink);
+    animation:enter .5s var(--ease) both}
+  .chip b{font-weight:700}
+  .chip .to{color:var(--muted)}
+  .chip button{width:18px;height:18px;border:0;border-radius:50%;background:var(--hair-soft);color:var(--muted);
+    cursor:pointer;display:grid;place-items:center;transition:all .35s var(--ease)}
+  .chip button:hover{background:var(--ink);color:#fff}
+  @media (prefers-color-scheme: dark){.chip button:hover{color:#0f1115}}
+  .chip button svg{width:11px;height:11px}
+  .muted-note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:12px}
+
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px}
+  .row + .row{border-top:1px solid var(--hair-soft)}
+  .row .lbl{font-size:13px;font-weight:600;color:var(--ink)}
+  .row .sub{font-size:11px;color:var(--muted);margin-top:2px}
+  select,.hotcap{font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--glass);
+    border:1px solid var(--hair-soft);border-radius:11px;padding:9px 12px;outline:none;cursor:pointer;min-width:120px;text-align:center}
+  .hotcap{min-width:130px}
+  .tg{width:44px;height:26px;border-radius:999px;background:var(--hair-soft);position:relative;cursor:pointer;
+    transition:background .4s var(--ease);flex:none;border:1px solid var(--hair-soft)}
+  .tg::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;
+    box-shadow:0 2px 6px rgba(20,24,33,.35);transition:transform .45s var(--ease)}
+  .tg.on{background:var(--accent)}
+  .tg.on::after{transform:translateX(18px)}
+  @media (prefers-color-scheme: dark){.tg.on::after{background:#0f1115}}
+
+  .advtoggle{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;cursor:pointer;
+    background:transparent;color:var(--muted);font-family:inherit;font-size:12px;font-weight:600;padding:6px;
+    transition:color .4s var(--ease)}
+  .advtoggle:hover{color:var(--ink)}
+  .advtoggle svg{width:14px;height:14px;transition:transform .5s var(--ease)}
+  .adv{max-height:0;overflow:hidden;transition:max-height .6s var(--ease),opacity .5s var(--ease);opacity:.4}
+  .adv.open{max-height:340px;opacity:1}
+  body.advopen .advtoggle svg{transform:rotate(180deg)}
+  .chips::-webkit-scrollbar{width:6px}
+  .chips::-webkit-scrollbar-thumb{background:var(--hair-soft);border-radius:6px}
+</style>
+</head>
+<body>
+  <div class="topbar pywebview-drag-region">
+    <div class="brand">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 4C11 6 6.5 11 5 20c6-1.5 11-5 15-15Z"/><path d="M5 20 10 15"/><path d="M15 6.5c-2 1-4 2.5-5.5 4.5"/>
+        </svg>
+      </div>
+      <h1>Plume</h1>
+    </div>
+    <div class="statuschip"><span class="dot" id="dot"></span><span id="statusMini">Prêt</span></div>
+    <button class="wbtn" id="minBtn" title="Réduire">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 12h14"/></svg>
+    </button>
+    <button class="wbtn" id="closeBtn" title="Fermer dans la barre">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+
+  <main>
+    <div class="seg" id="seg">
+      <button data-tab="dictee" class="active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+        Dictée
+      </button>
+      <button data-tab="mots">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3Z"/><path d="M8 8h7M8 12h7"/></svg>
+        Mots
+      </button>
+      <button data-tab="reglages">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.4"/><circle cx="8" cy="16" r="2.4"/></svg>
+        Réglages
+      </button>
+    </div>
+
+    <section class="panel show" id="tab-dictee">
+      <div class="card">
+        <div class="inner hero">
+          <div class="recwrap">
+            <div class="ring"></div>
+            <button class="recbtn" id="recBtn" aria-label="Dicter">
+              <svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+              <span class="stop"></span>
+            </button>
+          </div>
+          <div class="status" id="status">Prêt à dicter</div>
+          <div class="hint">Appuie sur <span class="kbd" id="hotHint">Ctrl + Espace</span> n'importe où</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="inner">
+          <div class="eyebrow">Dernière transcription</div>
+          <div class="transcript empty" id="transcript">Ta dictée apparaîtra ici, puis se collera dans l'app active.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="tab-mots">
+      <div class="card">
+        <div class="inner">
+          <div class="eyebrow">Corriger un mot</div>
+          <div class="wordform">
+            <div class="field"><input id="wFrom" placeholder="entendu (ex: kubernét)" /></div>
+            <span class="arrow"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+            <div class="field"><input id="wTo" placeholder="correct (ex: Kubernetes)" /></div>
+            <button class="addbtn" id="addWord"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+          </div>
+          <p class="muted-note">Plume apprend ton vocabulaire technique : les mots ajoutés orientent la reconnaissance <b>et</b> corrigent automatiquement les prochaines dictées. Laisse « entendu » vide pour juste apprendre un terme.</p>
+          <div class="chips" id="chips"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="tab-reglages">
+      <div class="card">
+        <div class="inner">
+          <div class="row">
+            <div><div class="lbl">Langue</div><div class="sub">Langue de dictée</div></div>
+            <select id="lang"><option value="fr">Français</option><option value="en">English</option><option value="auto">Auto</option></select>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Modèle</div><div class="sub">Qualité vs vitesse</div></div>
+            <select id="model"><option value="base">Base — rapide</option><option value="small" selected>Small — recommandé</option><option value="medium">Medium — qualité</option><option value="turbo">Turbo</option></select>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Raccourci</div><div class="sub">Clique puis tape la combinaison</div></div>
+            <button class="hotcap" id="hotcap">Ctrl + Espace</button>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Position de la bulle</div><div class="sub">Indicateur d'écoute</div></div>
+            <select id="bubble"><option value="bottom">En bas</option><option value="top">En haut</option></select>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Collage automatique</div><div class="sub">Coller dans l'app active</div></div>
+            <div class="tg on" id="tgPaste"></div>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Démarrer avec Windows</div><div class="sub">Lancer Plume au démarrage</div></div>
+            <div class="tg" id="tgStartup"></div>
+          </div>
+        </div>
+      </div>
+
+      <button class="advtoggle" id="advToggle">
+        Mode avancé
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="adv" id="adv">
+        <div class="card">
+          <div class="inner">
+            <div class="row">
+              <div><div class="lbl">Moteur</div><div class="sub">Accélération</div></div>
+              <select id="profile">
+                <option value="fw-cpu" selected>Rapide — CPU</option>
+                <option value="ov-npu">NPU — AI Boost</option>
+                <option value="ov-gpu">iGPU — Arc</option>
+                <option value="ov-cpu">OpenVINO — CPU</option>
+              </select>
+            </div>
+            <div class="row">
+              <div><div class="lbl">Nettoyage</div><div class="sub">Hésitations / répétitions</div></div>
+              <select id="cleanup"><option value="off">Aucun</option><option value="light" selected>Léger</option><option value="strong">Fort</option></select>
+            </div>
+            <div class="row">
+              <div><div class="lbl">Compute</div><div class="sub">Précision faster-whisper</div></div>
+              <select id="compute"><option value="int8" selected>int8</option><option value="int8_float16">int8_float16</option><option value="float16">float16</option><option value="float32">float32</option></select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+  const hasAPI = () => window.pywebview && window.pywebview.api;
+  const api = new Proxy({}, { get:(_,k)=> (...a)=> hasAPI() ? window.pywebview.api[k](...a) : Promise.resolve() });
+  const state = { recording:false, words:[{from:"kubernét",to:"Kubernetes"},{from:"",to:"Nginx"},{from:"doquer",to:"Docker"}] };
+
+  const seg = document.getElementById("seg");
+  seg.addEventListener("click", e=>{ const b=e.target.closest("button"); if(!b) return;
+    seg.querySelectorAll("button").forEach(x=>x.classList.toggle("active", x===b));
+    document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("show", p.id==="tab-"+b.dataset.tab));
+  });
+
+  const recBtn=document.getElementById("recBtn");
+  function setRecording(on){ state.recording=on; document.body.classList.toggle("rec",on);
+    document.getElementById("status").textContent = on ? "À l'écoute…" : "Prêt à dicter";
+    document.getElementById("statusMini").textContent = on ? "Écoute" : "Prêt";
+  }
+  recBtn.addEventListener("click", ()=>{ setRecording(!state.recording); api.toggle(); });
+
+  const advToggle=document.getElementById("advToggle"), adv=document.getElementById("adv");
+  advToggle.addEventListener("click", ()=>{ adv.classList.toggle("open"); document.body.classList.toggle("advopen"); });
+  document.getElementById("minBtn").addEventListener("click", ()=>api.minimize());
+  document.getElementById("closeBtn").addEventListener("click", ()=>api.hide_window());
+
+  // persist settings
+  const settingMap = { lang:"language", model:"model", bubble:"bubble_position", cleanup:"cleanup", compute:"compute", profile:"profile" };
+  Object.keys(settingMap).forEach(id=>{ const el=document.getElementById(id);
+    el && el.addEventListener("change", ()=> api.set_setting(settingMap[id], el.value)); });
+  const tgPaste=document.getElementById("tgPaste"), tgStartup=document.getElementById("tgStartup");
+  tgPaste.addEventListener("click", ()=>{ tgPaste.classList.toggle("on"); api.set_setting("autopaste", tgPaste.classList.contains("on")); });
+  tgStartup.addEventListener("click", ()=>{ tgStartup.classList.toggle("on"); api.set_setting("autostart", tgStartup.classList.contains("on")); });
+
+  function applyConfig(c){ if(!c) return;
+    const set=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
+    set("lang",c.language); set("model",c.model); set("bubble",c.bubble_position);
+    set("cleanup",c.cleanup); set("compute",c.compute); set("profile",c.profile);
+    tgPaste.classList.toggle("on", !!c.autopaste); tgStartup.classList.toggle("on", !!c.autostart);
+    if(c.hotkey_display){ document.getElementById("hotcap").textContent=c.hotkey_display; document.getElementById("hotHint").textContent=c.hotkey_display; }
+  }
+  window.addEventListener("pywebviewready", ()=>{
+    api.get_state().then(s=>{ if(s&&s.words){ state.words=s.words; renderChips(); } if(s&&s.config) applyConfig(s.config); });
+  });
+
+  const chips=document.getElementById("chips");
+  function renderChips(){ chips.innerHTML="";
+    state.words.forEach((w,i)=>{ const c=document.createElement("div"); c.className="chip"; c.style.animationDelay=(i*40)+"ms";
+      c.innerHTML = (w.from ? `<span class="to">${w.from}</span> → ` : "") + `<b>${w.to}</b>` +
+        `<button data-i="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>`;
+      chips.appendChild(c);
+    });
+    chips.querySelectorAll("button").forEach(b=> b.addEventListener("click", ()=>{ state.words.splice(+b.dataset.i,1); renderChips(); api.remove_word(+b.dataset.i); }));
+  }
+  document.getElementById("addWord").addEventListener("click", ()=>{
+    const from=document.getElementById("wFrom").value.trim(), to=document.getElementById("wTo").value.trim();
+    if(!to) return; state.words.unshift({from,to}); document.getElementById("wFrom").value=""; document.getElementById("wTo").value="";
+    renderChips(); api.add_word(from,to);
+  });
+
+  const hotcap=document.getElementById("hotcap");
+  hotcap.addEventListener("click", ()=>{ hotcap.textContent="Tape la combinaison…";
+    const h=e=>{ e.preventDefault(); const parts=[]; if(e.ctrlKey)parts.push("Ctrl"); if(e.altKey)parts.push("Alt"); if(e.shiftKey)parts.push("Maj");
+      const k=e.key===" "?"Espace":e.key.length===1?e.key.toUpperCase():e.key; if(!["Control","Alt","Shift"].includes(e.key))parts.push(k);
+      if(parts.length){ const s=parts.join(" + "); hotcap.textContent=s; document.getElementById("hotHint").textContent=s; window.removeEventListener("keydown",h); api.set_hotkey(s);} };
+    window.addEventListener("keydown",h);
+  });
+
+  window.plume = {
+    setStatus:(t,mini)=>{ document.getElementById("status").textContent=t; if(mini)document.getElementById("statusMini").textContent=mini; },
+    setRecording,
+    setTranscript:(t)=>{ const el=document.getElementById("transcript"); el.textContent=t||"—"; el.classList.toggle("empty",!t); },
+  };
+  renderChips();
+</script>
+</body>
+</html>

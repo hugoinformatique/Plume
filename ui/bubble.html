@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plume — écoute</title>
+<style>
+  :root{
+    --pill:#111318; --text:#f3f4f7; --bar:#f3f4f7; --bar-dim:#9aa0ac;
+    --ease:cubic-bezier(.32,.72,0,1);
+    --font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  html,body{height:100%;margin:0;background:transparent;overflow:hidden}
+  body{display:grid;place-items:center;font-family:var(--font)}
+  .bubble{
+    display:flex;align-items:center;gap:12px;padding:13px 18px;border-radius:22px;
+    background:linear-gradient(150deg, rgba(24,27,34,.94), rgba(15,17,22,.94));
+    border:1px solid rgba(255,255,255,.10);
+    box-shadow:0 20px 50px -18px rgba(0,0,0,.75), inset 0 1px 1px rgba(255,255,255,.12);
+    backdrop-filter:blur(18px) saturate(1.2); color:var(--text);
+    animation:pop .5s var(--ease) both;
+  }
+  @keyframes pop{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:none}}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--bar);flex:none;
+    box-shadow:0 0 10px 1px rgba(255,255,255,.35);animation:breathe 1.8s var(--ease) infinite}
+  @keyframes breathe{0%,100%{transform:scale(.8);opacity:.75}50%{transform:scale(1.15);opacity:1}}
+  .label{font-size:13.5px;font-weight:700;letter-spacing:.01em;white-space:nowrap}
+  .eq{display:flex;align-items:center;gap:5px;height:34px;margin-left:2px}
+  .eq i{width:5px;height:6px;border-radius:999px;background:var(--bar);transition:height .09s linear,background .4s var(--ease)}
+  body.transcribing .dot{background:var(--bar-dim);box-shadow:0 0 10px 1px rgba(255,255,255,.2)}
+  body.transcribing .eq i{background:var(--bar-dim)}
+</style>
+</head>
+<body>
+  <div class="bubble">
+    <span class="dot"></span>
+    <span class="label" id="label">À l'écoute…</span>
+    <div class="eq" id="eq"><i></i><i></i><i></i><i></i><i></i></div>
+  </div>
+<script>
+  const bars=[...document.querySelectorAll("#eq i")];
+  let target=0.08, vals=bars.map(()=>4), phase=0, state="listening";
+  window.plumeBubble = {
+    setLevel:(v)=>{ target=Math.max(0,Math.min(1,v)); },
+    setState:(s,txt)=>{ state=s; document.body.className=s; if(txt)document.getElementById("label").textContent=txt; },
+  };
+  const MAX=26, FLOOR=4;
+  function frame(){
+    phase+=0.22;
+    bars.forEach((b,i)=>{
+      let t;
+      if(state==="transcribing"){ t=8+9*(0.5+0.5*Math.sin(phase*2 - i)); }
+      else { const shimmer=0.55+0.45*Math.sin(phase*1.3 + i*0.7); t=FLOOR+target*MAX*shimmer; }
+      vals[i]+=(t-vals[i])*0.32;
+      b.style.height=Math.max(FLOOR,vals[i]).toFixed(1)+"px";
+    });
+    requestAnimationFrame(frame);
+  }
+  frame();
+  if(!window.pywebview){ let p=0; setInterval(()=>{ p+=0.35; window.plumeBubble.setLevel(0.35+0.4*Math.abs(Math.sin(p))+0.1*Math.random()); },90); }
+</script>
+</body>
+</html>

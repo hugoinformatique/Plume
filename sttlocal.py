@@ -148,10 +148,17 @@ class DictationEngine:
             )
         self._transcriber.load()
 
-    def transcribe(self, path: Path) -> tuple[str, float, str, float]:
+    def transcribe_full(
+        self, path: Path, hotwords: str | None = None, initial_prompt: str | None = None
+    ) -> TranscriptionResult:
         self.load()
         assert self._transcriber is not None
-        result: TranscriptionResult = self._transcriber.transcribe(path)
+        return self._transcriber.transcribe(path, hotwords=hotwords, initial_prompt=initial_prompt)
+
+    def transcribe(
+        self, path: Path, hotwords: str | None = None, initial_prompt: str | None = None
+    ) -> tuple[str, float, str, float]:
+        result = self.transcribe_full(path, hotwords, initial_prompt)
         return result.text, result.elapsed, result.language, result.language_probability
 
 

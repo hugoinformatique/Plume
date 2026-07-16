@@ -45,7 +45,8 @@ class Transcriber(Protocol):
     def load(self) -> None:
         ...
 
-    def transcribe(self, path: Path) -> TranscriptionResult:
+    def transcribe(self, path: Path, hotwords: str | None = None,
+                   initial_prompt: str | None = None) -> TranscriptionResult:
         ...
 
 
@@ -93,11 +94,16 @@ class FasterWhisperBackend:
         device: str = "cpu",
         compute_type: str = "int8",
         language: str | None = "fr",
+        beam_size: int = 5,
+        vad: bool = True,
+        **_ignored,
     ) -> None:
         self.model_name = model_name
         self.device = device
         self.compute_type = compute_type
         self.language = language
+        self.beam_size = beam_size
+        self.vad = vad
         self._model = None
 
     @property
@@ -119,16 +125,19 @@ class FasterWhisperBackend:
             compute_type=self.compute_type,
         )
 
-    def transcribe(self, path: Path) -> TranscriptionResult:
+    def transcribe(self, path: Path, hotwords: str | None = None,
+                   initial_prompt: str | None = None) -> TranscriptionResult:
         self.load()
         assert self._model is not None
         started = time.perf_counter()
         segments, info = self._model.transcribe(
             str(path),
             language=self.language,
-            vad_filter=True,
-            beam_size=5,
+            vad_filter=self.vad,
+            beam_size=self.beam_size,
             condition_on_previous_text=False,
+            hotwords=hotwords or None,
+            initial_prompt=initial_prompt or None,
         )
         text = " ".join(segment.text.strip() for segment in segments).strip()
         elapsed = time.perf_counter() - started
@@ -161,6 +170,7 @@ class OpenVINOBackend:
         device: str = "CPU",
         compute_type: str = "int8",  # kept for interface symmetry; conversion-time concern
         language: str | None = "fr",
+        **_ignored,
     ) -> None:
         self.model_dir = Path(model_name)
         self.device = device.upper()
@@ -202,7 +212,8 @@ class OpenVINOBackend:
             kwargs["STATIC_PIPELINE"] = "YES"
         self._pipeline = ov_genai.WhisperPipeline(str(self.model_dir), self.device, **kwargs)
 
-    def transcribe(self, path: Path) -> TranscriptionResult:
+    def transcribe(self, path: Path, hotwords: str | None = None,
+                   initial_prompt: str | None = None) -> TranscriptionResult:
         self.load()
         assert self._pipeline is not None
         audio = read_wav_mono_f32(path)
@@ -211,9 +222,16 @@ class OpenVINOBackend:
         lang_token = self._language_token()
         if lang_token is not None:
             gen_kwargs["language"] = lang_token
+        if initial_prompt:
+            # Best-effort biasing; ignored by pipelines that don't support it.
+            gen_kwargs["initial_prompt"] = initial_prompt
 
         started = time.perf_counter()
-        result = self._pipeline.generate(audio, **gen_kwargs)
+        try:
+            result = self._pipeline.generate(audio, **gen_kwargs)
+        except Exception:
+            gen_kwargs.pop("initial_prompt", None)
+            result = self._pipeline.generate(audio, **gen_kwargs)
         elapsed = time.perf_counter() - started
 
         text = str(result).strip()
@@ -237,12 +255,16 @@ def create_backend(
     device: str,
     compute_type: str,
     language: str | None,
+    **kwargs,
 ) -> Transcriber:
     """Factory. ``backend`` is one of :data:`BACKENDS`.
 
     Device semantics differ per backend:
       - faster-whisper: "cpu" or "cuda"
       - openvino:       "CPU", "GPU", or "NPU"
+
+    Extra kwargs (e.g. ``beam_size``, ``vad``) are forwarded to the backend;
+    backends ignore options they don't understand.
     """
     try:
         cls = BACKENDS[backend]
@@ -254,4 +276,5 @@ def create_backend(
         device=device,
         compute_type=compute_type,
         language=language,
+        **kwargs,
     )
