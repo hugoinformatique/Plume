@@ -1,4 +1,4 @@
-# ScribeLocal
+# Plume
 
 Windows-first MVP for local voice dictation.
 
@@ -53,7 +53,7 @@ INSTALLER_WINDOWS.md
 The intended user-facing installer is:
 
 ```text
-ScribeLocal-Setup-0.2.0.exe
+Plume-Setup-0.2.0.exe
 ```
 
 ## Quick Start On Windows
@@ -111,13 +111,61 @@ Use `base` first to validate the chain. `small` is likely the first serious cand
 
 ## Benchmark Existing Audio Files
 
-Put `.wav`, `.mp3`, or `.m4a` files in `samples/`, then run:
+Put `.wav`, `.mp3`, or `.m4a` files in `samples/`, then sweep backends, devices,
+and models. This is how you decide NPU vs iGPU vs CPU on your real machine.
 
 ```powershell
-python benchmark.py --models base small medium turbo --language fr
+# CPU baseline across models
+python benchmark.py --backends faster-whisper --devices cpu --models base small medium turbo --language fr
+
+# OpenVINO targets (after converting a model, see "OpenVINO / NPU")
+python benchmark.py --backends openvino --devices CPU GPU NPU --models models\openvino\whisper-small --language fr
 ```
 
-Results are written to `benchmark-results/results.csv`.
+Results (latency + real-time factor RTF) are written to `benchmark-results/results.csv`.
+Keep a few short clips in `samples/` too: for dictation, low absolute latency on
+short utterances matters more than RTF on long files.
+
+## Engine Backends
+
+The STT engine is pluggable. Pick it with `--backend`:
+
+- `faster-whisper` (default): CTranslate2, **CPU** int8. The reliable baseline. Cannot use the Intel NPU or iGPU.
+- `openvino`: Intel OpenVINO GenAI. Targets **CPU / GPU (Arc iGPU) / NPU (AI Boost)** via `--device CPU|GPU|NPU`.
+
+```powershell
+python dictate.py --backend faster-whisper --device cpu --model small --language fr
+python dictate.py --backend openvino --device GPU --model models\openvino\whisper-small --language fr
+python dictate.py --backend openvino --device NPU --model models\openvino\whisper-small --language fr
+```
+
+## OpenVINO / NPU
+
+Only needed to use the Intel iGPU or NPU. Do this **on the target Intel machine**.
+
+1. Install the optional deps:
+
+```powershell
+python -m pip install -r requirements-openvino.txt
+```
+
+2. Convert a Whisper model to the OpenVINO IR format once (the pipeline needs a
+   directory, not a Hugging Face name):
+
+```powershell
+optimum-cli export openvino --model openai/whisper-small --weight-format int8 models\openvino\whisper-small
+```
+
+3. Point `--model` at that directory and choose the device:
+
+```powershell
+python dictate.py --backend openvino --device NPU --model models\openvino\whisper-small --language fr
+```
+
+Reality check: on Core Ultra parts the **Arc iGPU (`GPU`) is often the fastest**
+target for Whisper. The **NPU** trades some speed for low power, low heat, and a
+free CPU. Don't assume NPU is fastest — measure with `benchmark.py` (below) on
+your actual PC, then decide.
 
 ## Privacy Positioning
 
@@ -127,6 +175,6 @@ Important caveat: the first run may download the selected model from Hugging Fac
 
 ## Notes
 
-- CPU is the first reliable target.
-- Intel GPU/OpenVINO and NPU should be benchmarked separately after this V1 proves the product loop.
+- CPU (`faster-whisper`) is the reliable baseline and default.
+- Intel iGPU/NPU are available through the `openvino` backend — benchmark them per machine before committing (see "OpenVINO / NPU").
 - The MVP uses clipboard paste for compatibility. A later product can use deeper Windows text injection if needed.

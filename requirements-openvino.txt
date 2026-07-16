@@ -1,0 +1,11 @@
+# Optional OpenVINO backend (Intel CPU / Arc iGPU / NPU on Core Ultra).
+# Install on top of requirements.txt ONLY on the target Intel machine:
+#   pip install -r requirements-openvino.txt
+#
+# openvino-genai provides the WhisperPipeline used by backends.OpenVINOBackend.
+# optimum-intel provides `optimum-cli export openvino` to convert Whisper models
+# to the IR format the pipeline needs (see README "OpenVINO / NPU").
+openvino>=2025.0
+openvino-genai>=2025.0
+optimum-intel[openvino]>=1.21
+nncf>=2.14

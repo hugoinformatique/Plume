@@ -6,8 +6,9 @@ from threading import Lock
 
 import numpy as np
 import sounddevice as sd
-from faster_whisper import WhisperModel
 from pynput import keyboard
+
+from backends import Transcriber, TranscriptionResult, create_backend
 
 
 SAMPLE_RATE = 16000
@@ -98,45 +99,49 @@ def write_frames_to_wav(frames: list[np.ndarray], output_dir: Path, sample_rate:
 
 
 class DictationEngine:
+    """Thin adapter over a pluggable :class:`~backends.Transcriber`.
+
+    Kept for backward compatibility with ``dictate.py`` / ``tray_app.py``: the
+    ``transcribe`` method still returns the legacy ``(text, elapsed, language,
+    probability)`` tuple. Pick the engine with ``backend`` ("faster-whisper" or
+    "openvino").
+    """
+
     def __init__(
         self,
         model_name: str = "small",
         device: str = "cpu",
         compute_type: str = "int8",
         language: str | None = "fr",
+        backend: str = "faster-whisper",
     ) -> None:
         self.model_name = model_name
         self.device = device
         self.compute_type = compute_type
         self.language = language
-        self._model: WhisperModel | None = None
+        self.backend = backend
+        self._transcriber: Transcriber | None = None
 
     @property
     def is_loaded(self) -> bool:
-        return self._model is not None
+        return self._transcriber is not None and getattr(self._transcriber, "is_loaded", False)
 
     def load(self) -> None:
-        if self._model is None:
-            self._model = WhisperModel(
+        if self._transcriber is None:
+            self._transcriber = create_backend(
+                self.backend,
                 self.model_name,
-                device=self.device,
-                compute_type=self.compute_type,
+                self.device,
+                self.compute_type,
+                self.language,
             )
+        self._transcriber.load()
 
     def transcribe(self, path: Path) -> tuple[str, float, str, float]:
         self.load()
-        assert self._model is not None
-        started = time.perf_counter()
-        segments, info = self._model.transcribe(
-            str(path),
-            language=self.language,
-            vad_filter=True,
-            beam_size=5,
-            condition_on_previous_text=False,
-        )
-        text = " ".join(segment.text.strip() for segment in segments).strip()
-        elapsed = time.perf_counter() - started
-        return text, elapsed, info.language, info.language_probability
+        assert self._transcriber is not None
+        result: TranscriptionResult = self._transcriber.transcribe(path)
+        return result.text, result.elapsed, result.language, result.language_probability
 
 
 FILLER_RE = re.compile(

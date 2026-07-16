@@ -18,9 +18,10 @@ ImageDraw = None
 keyboard = None
 
 MODELS = ["base", "small", "medium", "turbo"]
+BACKENDS = ["faster-whisper", "openvino"]
 COMPUTE_TYPES = ["int8", "int8_float16", "float16", "float32"]
 CLEANUP_MODES = ["off", "light", "strong"]
-APP_NAME = "ScribeLocal"
+APP_NAME = "Plume"
 
 
 def load_gui_dependencies() -> None:
@@ -65,6 +66,7 @@ class TrayDictationApp:
 
         self.model_var = tk.StringVar(value=args.model)
         self.language_var = tk.StringVar(value=args.language)
+        self.backend_var = tk.StringVar(value=args.backend)
         self.device_var = tk.StringVar(value=args.device)
         self.compute_var = tk.StringVar(value=args.compute_type)
         self.cleanup_var = tk.StringVar(value=args.cleanup)
@@ -93,15 +95,18 @@ class TrayDictationApp:
         ttk.Label(settings, text="Langue").grid(row=0, column=2, sticky="w", **padding)
         ttk.Entry(settings, textvariable=self.language_var, width=8).grid(row=0, column=3, sticky="w", **padding)
 
-        ttk.Label(settings, text="Device").grid(row=1, column=0, sticky="w", **padding)
-        ttk.Entry(settings, textvariable=self.device_var, width=17).grid(row=1, column=1, sticky="w", **padding)
-        ttk.Label(settings, text="Compute").grid(row=1, column=2, sticky="w", **padding)
-        ttk.Combobox(settings, textvariable=self.compute_var, values=COMPUTE_TYPES, width=13).grid(row=1, column=3, sticky="w", **padding)
+        ttk.Label(settings, text="Backend").grid(row=1, column=0, sticky="w", **padding)
+        ttk.Combobox(settings, textvariable=self.backend_var, values=BACKENDS, width=15).grid(row=1, column=1, sticky="w", **padding)
+        ttk.Label(settings, text="Device").grid(row=1, column=2, sticky="w", **padding)
+        ttk.Entry(settings, textvariable=self.device_var, width=13).grid(row=1, column=3, sticky="w", **padding)
 
-        ttk.Label(settings, text="Nettoyage").grid(row=2, column=0, sticky="w", **padding)
-        ttk.Combobox(settings, textvariable=self.cleanup_var, values=CLEANUP_MODES, width=15).grid(row=2, column=1, sticky="w", **padding)
+        ttk.Label(settings, text="Compute").grid(row=2, column=0, sticky="w", **padding)
+        ttk.Combobox(settings, textvariable=self.compute_var, values=COMPUTE_TYPES, width=15).grid(row=2, column=1, sticky="w", **padding)
+        ttk.Label(settings, text="Nettoyage").grid(row=2, column=2, sticky="w", **padding)
+        ttk.Combobox(settings, textvariable=self.cleanup_var, values=CLEANUP_MODES, width=13).grid(row=2, column=3, sticky="w", **padding)
+
         ttk.Checkbutton(settings, text="Preview pendant l'enregistrement", variable=self.live_preview_var).grid(
-            row=2, column=2, columnspan=2, sticky="w", **padding
+            row=3, column=0, columnspan=4, sticky="w", **padding
         )
 
         controls = ttk.Frame(self.root)
@@ -130,7 +135,7 @@ class TrayDictationApp:
             image = Image.new("RGB", (64, 64), "#1f6feb")
             draw = ImageDraw.Draw(image)
             draw.rounded_rectangle((10, 10, 54, 54), radius=10, fill="#ffffff")
-            draw.text((22, 21), "ST", fill="#1f6feb")
+            draw.text((22, 21), "Pl", fill="#1f6feb")
             menu = pystray.Menu(
                 pystray.MenuItem("Afficher", lambda: self.events.put(("show", None))),
                 pystray.MenuItem("Start/Stop F9", lambda: self.events.put(("toggle", None))),
@@ -197,6 +202,7 @@ class TrayDictationApp:
             device=self.device_var.get().strip(),
             compute_type=self.compute_var.get().strip(),
             language=None if language.lower() == "auto" else language,
+            backend=self.backend_var.get().strip(),
         )
 
     def _transcribe_and_paste(self, path: Path) -> None:
@@ -293,9 +299,10 @@ class TrayDictationApp:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=f"{APP_NAME} Windows tray app")
-    parser.add_argument("--model", default="small", choices=MODELS)
+    parser.add_argument("--model", default="small", help="Model name, or a converted model dir for openvino")
     parser.add_argument("--language", default="fr")
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--backend", default="faster-whisper", choices=BACKENDS)
+    parser.add_argument("--device", default="cpu", help="faster-whisper: cpu/cuda. openvino: CPU/GPU/NPU.")
     parser.add_argument("--compute-type", default="int8")
     parser.add_argument("--cleanup", default="light", choices=CLEANUP_MODES)
     parser.add_argument("--live-preview", action="store_true")

@@ -1,0 +1,257 @@
+"""Pluggable speech-to-text backends for STTLocal.
+
+Design goal (see project decision): keep a reliable CPU baseline with
+``faster-whisper`` and add an interchangeable OpenVINO backend that can target
+CPU / GPU (Intel Arc iGPU) / NPU (Intel AI Boost) on Core Ultra machines.
+
+All heavy imports are lazy so importing this module never fails just because a
+given backend's dependencies are not installed.
+"""
+
+from __future__ import annotations
+
+import time
+import wave
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol, runtime_checkable
+
+import numpy as np
+
+
+SAMPLE_RATE = 16000
+
+
+@dataclass
+class TranscriptionResult:
+    text: str
+    elapsed: float
+    language: str
+    language_probability: float
+    audio_seconds: float | None = None  # source audio duration, for RTF
+
+    @property
+    def rtf(self) -> float | None:
+        """Real-time factor = processing / audio. < 1.0 is faster than real time."""
+        if not self.audio_seconds:
+            return None
+        return self.elapsed / self.audio_seconds
+
+
+@runtime_checkable
+class Transcriber(Protocol):
+    """Common interface every backend implements."""
+
+    def load(self) -> None:
+        ...
+
+    def transcribe(self, path: Path) -> TranscriptionResult:
+        ...
+
+
+def read_wav_mono_f32(path: Path, target_rate: int = SAMPLE_RATE) -> np.ndarray:
+    """Read a mono/16-bit PCM wav into a float32 array in [-1, 1].
+
+    The Recorder writes exactly this format (16 kHz mono int16), so no
+    resampling library is required for the common path. If the file uses a
+    different rate we do a light linear resample to keep the dependency
+    surface minimal.
+    """
+    with wave.open(str(path), "rb") as wav:
+        channels = wav.getnchannels()
+        rate = wav.getframerate()
+        width = wav.getsampwidth()
+        frames = wav.readframes(wav.getnframes())
+
+    if width != 2:
+        raise ValueError(f"Only 16-bit PCM wav is supported, got {width * 8}-bit")
+
+    audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+    if channels > 1:
+        audio = audio.reshape(-1, channels).mean(axis=1)
+
+    if rate != target_rate and audio.size:
+        duration = audio.size / rate
+        new_len = int(round(duration * target_rate))
+        if new_len > 0:
+            src_idx = np.linspace(0, audio.size - 1, num=new_len)
+            audio = np.interp(src_idx, np.arange(audio.size), audio).astype(np.float32)
+
+    return audio
+
+
+class FasterWhisperBackend:
+    """Reliable CPU baseline. Wraps ``faster-whisper`` (CTranslate2).
+
+    Note: CTranslate2 targets CPU and NVIDIA GPUs only. It cannot use the
+    Intel NPU or iGPU. For those, use :class:`OpenVINOBackend`.
+    """
+
+    def __init__(
+        self,
+        model_name: str = "small",
+        device: str = "cpu",
+        compute_type: str = "int8",
+        language: str | None = "fr",
+    ) -> None:
+        self.model_name = model_name
+        self.device = device
+        self.compute_type = compute_type
+        self.language = language
+        self._model = None
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._model is not None
+
+    def load(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            from faster_whisper import WhisperModel
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "faster-whisper is not installed. Run: pip install -r requirements.txt"
+            ) from exc
+        self._model = WhisperModel(
+            self.model_name,
+            device=self.device,
+            compute_type=self.compute_type,
+        )
+
+    def transcribe(self, path: Path) -> TranscriptionResult:
+        self.load()
+        assert self._model is not None
+        started = time.perf_counter()
+        segments, info = self._model.transcribe(
+            str(path),
+            language=self.language,
+            vad_filter=True,
+            beam_size=5,
+            condition_on_previous_text=False,
+        )
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        elapsed = time.perf_counter() - started
+        audio_seconds = getattr(info, "duration", None)
+        return TranscriptionResult(
+            text, elapsed, info.language, info.language_probability, audio_seconds
+        )
+
+
+class OpenVINOBackend:
+    """Intel OpenVINO GenAI backend. Can target CPU / GPU / NPU.
+
+    ``model_name`` must point to a directory holding an OpenVINO-converted
+    Whisper model (IR + tokenizer). Convert once with, e.g.::
+
+        optimum-cli export openvino \\
+            --model openai/whisper-small \\
+            --weight-format int8 \\
+            models/openvino/whisper-small
+
+    On NPU the pipeline must be static (``STATIC_PIPELINE=YES``). GPU refers to
+    the Intel Arc iGPU on Core Ultra parts, which is often the fastest target
+    for Whisper; NPU trades raw speed for low power / heat and a free CPU.
+    """
+
+    # device is an OpenVINO target string: "CPU", "GPU", or "NPU".
+    def __init__(
+        self,
+        model_name: str,
+        device: str = "CPU",
+        compute_type: str = "int8",  # kept for interface symmetry; conversion-time concern
+        language: str | None = "fr",
+    ) -> None:
+        self.model_dir = Path(model_name)
+        self.device = device.upper()
+        self.compute_type = compute_type
+        self.language = language
+        self._pipeline = None
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._pipeline is not None
+
+    def _language_token(self) -> str | None:
+        if not self.language or self.language.lower() == "auto":
+            return None
+        return f"<|{self.language.lower()}|>"
+
+    def load(self) -> None:
+        if self._pipeline is not None:
+            return
+        try:
+            import openvino_genai as ov_genai
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "openvino-genai is not installed. Run: pip install openvino-genai openvino "
+                "(and convert a model with optimum-cli export openvino)."
+            ) from exc
+
+        if not self.model_dir.exists():
+            raise RuntimeError(
+                f"OpenVINO model directory not found: {self.model_dir}\n"
+                "Convert one first, e.g.:\n"
+                "  optimum-cli export openvino --model openai/whisper-small "
+                f"--weight-format int8 {self.model_dir}"
+            )
+
+        kwargs: dict[str, object] = {}
+        if self.device == "NPU":
+            # NPU requires a static pipeline.
+            kwargs["STATIC_PIPELINE"] = "YES"
+        self._pipeline = ov_genai.WhisperPipeline(str(self.model_dir), self.device, **kwargs)
+
+    def transcribe(self, path: Path) -> TranscriptionResult:
+        self.load()
+        assert self._pipeline is not None
+        audio = read_wav_mono_f32(path)
+
+        gen_kwargs: dict[str, object] = {"task": "transcribe"}
+        lang_token = self._language_token()
+        if lang_token is not None:
+            gen_kwargs["language"] = lang_token
+
+        started = time.perf_counter()
+        result = self._pipeline.generate(audio, **gen_kwargs)
+        elapsed = time.perf_counter() - started
+
+        text = str(result).strip()
+        detected = self.language or "auto"
+        # OpenVINO GenAI does not expose a language probability; report 1.0 when
+        # the language was forced, else unknown (0.0).
+        prob = 1.0 if lang_token is not None else 0.0
+        audio_seconds = audio.size / SAMPLE_RATE if audio.size else None
+        return TranscriptionResult(text, elapsed, detected, prob, audio_seconds)
+
+
+BACKENDS = {
+    "faster-whisper": FasterWhisperBackend,
+    "openvino": OpenVINOBackend,
+}
+
+
+def create_backend(
+    backend: str,
+    model_name: str,
+    device: str,
+    compute_type: str,
+    language: str | None,
+) -> Transcriber:
+    """Factory. ``backend`` is one of :data:`BACKENDS`.
+
+    Device semantics differ per backend:
+      - faster-whisper: "cpu" or "cuda"
+      - openvino:       "CPU", "GPU", or "NPU"
+    """
+    try:
+        cls = BACKENDS[backend]
+    except KeyError:
+        options = ", ".join(sorted(BACKENDS))
+        raise ValueError(f"Unknown backend '{backend}'. Available: {options}")
+    return cls(
+        model_name=model_name,
+        device=device,
+        compute_type=compute_type,
+        language=language,
+    )
