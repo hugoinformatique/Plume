@@ -43,7 +43,7 @@
     background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");}
 
   /* top bar */
-  .topbar{display:flex;align-items:center;gap:10px;padding:10px 14px 6px}
+  .topbar{display:flex;align-items:center;gap:8px;padding:8px 12px 5px}
   .pywebview-drag-region{-webkit-app-region:drag}
   .brand{display:flex;align-items:center;gap:9px;flex:1}
   .logo{width:26px;height:26px;flex:none;color:var(--ink);display:grid;place-items:center}
@@ -55,12 +55,12 @@
   .dot{width:6px;height:6px;border-radius:50%;background:var(--muted);transition:background .4s var(--ease)}
   body.rec .dot{background:var(--ink);animation:blink 1.3s var(--ease) infinite}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
-  .wbtn{width:26px;height:26px;border:0;border-radius:8px;background:transparent;color:var(--muted);
-    display:grid;place-items:center;cursor:pointer;transition:all .4s var(--ease);-webkit-app-region:no-drag}
+  .wbtn{width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--muted);
+    display:grid;place-items:center;cursor:pointer;transition:all .4s var(--ease);-webkit-app-region:no-drag;position:relative;z-index:20}
   .wbtn:hover{background:var(--glass);color:var(--ink)}
   .wbtn svg{width:15px;height:15px}
 
-  main{flex:1;display:flex;flex-direction:column;padding:4px 14px 14px;gap:10px;overflow:hidden;min-height:0}
+  main{flex:1;display:flex;flex-direction:column;padding:4px 12px 12px;gap:8px;overflow:hidden;min-height:0}
 
   .seg{display:flex;padding:4px;gap:4px;border-radius:16px;background:var(--glass-2);
     border:1px solid var(--hair-soft);backdrop-filter:blur(14px)}
@@ -71,15 +71,15 @@
   .seg button.active{color:var(--ink);background:var(--glass);
     box-shadow:0 6px 16px -12px rgba(20,24,33,.5), inset 0 1px 1px var(--hair)}
 
-  .panel{display:none;flex-direction:column;gap:10px;animation:enter .55s var(--ease) both;min-height:0}
+  .panel{display:none;flex-direction:column;gap:8px;animation:enter .55s var(--ease) both;min-height:0}
   .panel.show{display:flex;flex:1;overflow:hidden}
-  #tab-reglages.show,#tab-mots.show{overflow:auto;padding-right:3px}
+  #tab-reglages.show,#tab-mots.show{overflow-y:auto;overflow-x:hidden;padding-right:3px;scrollbar-gutter:stable}
   @keyframes enter{from{opacity:0;transform:translateY(14px);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
 
-  .card{border-radius:var(--radius);padding:6px;background:var(--glass-2);
+  .card{border-radius:var(--radius);padding:5px;background:var(--glass-2);
     border:1px solid var(--hair-soft);box-shadow:var(--shadow);backdrop-filter:blur(30px) saturate(1.1)}
   .card .inner{border-radius:var(--radius-in);background:var(--glass);
-    border:1px solid var(--hair);box-shadow:inset 0 1px 1px var(--hair);padding:14px}
+    border:1px solid var(--hair);box-shadow:inset 0 1px 1px var(--hair);padding:11px}
 
   .hero{display:flex;flex-direction:column;align-items:center;gap:9px;padding:14px 14px 12px}
   .recwrap{position:relative;width:104px;height:104px;display:grid;place-items:center}
@@ -106,7 +106,7 @@
   .eyebrow{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
   .transcript{font-size:14px;line-height:1.55;color:var(--ink);min-height:44px}
   .transcript.empty{color:var(--muted)}
-  .history{display:flex;flex-direction:column;gap:7px;overflow:hidden}
+  .history{display:flex;flex-direction:column;gap:6px;max-height:178px;overflow-y:auto;overflow-x:hidden;padding-right:2px}
   .histitem{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;
     padding:9px 10px;border-radius:14px;background:var(--glass);border:1px solid var(--hair-soft)}
   .histtext{font-size:12.5px;line-height:1.35;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -146,12 +146,12 @@
   .chip button svg{width:11px;height:11px}
   .muted-note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:12px}
 
-  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 2px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 2px}
   .row + .row{border-top:1px solid var(--hair-soft)}
   .row .lbl{font-size:13px;font-weight:600;color:var(--ink)}
   .row .sub{font-size:11px;color:var(--muted);margin-top:2px}
   select,.hotcap,.modelinput{font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--glass);
-    border:1px solid var(--hair-soft);border-radius:11px;padding:9px 12px;outline:none;cursor:pointer;min-width:120px;text-align:center}
+    border:1px solid var(--hair-soft);border-radius:11px;padding:8px 11px;outline:none;cursor:pointer;min-width:118px;text-align:center}
   .hotcap{min-width:130px}
   .modelinput{width:168px;text-align:left;cursor:text}
   .tg{width:44px;height:26px;border-radius:999px;background:var(--hair-soft);position:relative;cursor:pointer;
@@ -167,8 +167,8 @@
     transition:color .4s var(--ease)}
   .advtoggle:hover{color:var(--ink)}
   .advtoggle svg{width:14px;height:14px;transition:transform .5s var(--ease)}
-  .adv{max-height:0;overflow:hidden;transition:max-height .6s var(--ease),opacity .5s var(--ease);opacity:.4}
-  .adv.open{max-height:360px;opacity:1}
+  .adv{max-height:0;overflow:hidden;transition:max-height .6s var(--ease),opacity .5s var(--ease);opacity:.4;flex:none}
+  .adv.open{max-height:280px;opacity:1}
   @media (max-height:640px){
     .topbar{padding-top:8px}
     .seg button{padding:7px 8px}
@@ -179,8 +179,8 @@
     .row{padding:7px 2px}
   }
   body.advopen .advtoggle svg{transform:rotate(180deg)}
-  .chips::-webkit-scrollbar,#tab-reglages::-webkit-scrollbar,#tab-mots::-webkit-scrollbar{width:6px}
-  .chips::-webkit-scrollbar-thumb,#tab-reglages::-webkit-scrollbar-thumb,#tab-mots::-webkit-scrollbar-thumb{background:var(--hair-soft);border-radius:6px}
+  .chips::-webkit-scrollbar,.history::-webkit-scrollbar,#tab-reglages::-webkit-scrollbar,#tab-mots::-webkit-scrollbar{width:6px}
+  .chips::-webkit-scrollbar-thumb,.history::-webkit-scrollbar-thumb,#tab-reglages::-webkit-scrollbar-thumb,#tab-mots::-webkit-scrollbar-thumb{background:var(--hair-soft);border-radius:6px}
 </style>
 </head>
 <body>
@@ -354,8 +354,14 @@
 
   const advToggle=document.getElementById("advToggle"), adv=document.getElementById("adv");
   advToggle.addEventListener("click", ()=>{ adv.classList.toggle("open"); document.body.classList.toggle("advopen"); });
-  document.getElementById("minBtn").addEventListener("click", ()=>api.minimize());
-  document.getElementById("closeBtn").addEventListener("click", ()=>api.hide_window());
+  function bindWindowButton(id, action){
+    const btn=document.getElementById(id);
+    const run=e=>{ e.preventDefault(); e.stopPropagation(); api[action](); };
+    btn.addEventListener("pointerup", run);
+    btn.addEventListener("click", run);
+  }
+  bindWindowButton("minBtn", "minimize");
+  bindWindowButton("closeBtn", "hide_window");
 
   // persist settings
   const settingMap = { lang:"language", model:"model", bubble:"bubble_position", cleanup:"cleanup", compute:"compute", profile:"profile" };

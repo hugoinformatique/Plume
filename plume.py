@@ -286,16 +286,14 @@ class PlumeApp:
             self._hotkey = None
         combo = self.config.get("hotkey") or "<ctrl>+<space>"
         try:
-            self._hotkey = keyboard.HotKey(keyboard.HotKey.parse(combo), self.toggle)
-
-            def for_canonical(fn):
-                return lambda key: fn(self.hotkeys.canonical(key))
-
-            self.hotkeys = keyboard.Listener(
-                on_press=for_canonical(self._hotkey.press),
-                on_release=for_canonical(self._hotkey.release),
-            )
+            # GlobalHotKeys re-registers the real Windows hook each time the
+            # shortcut changes. It is more reliable than keeping a manual
+            # press/release listener alive across shortcut edits.
+            self.hotkeys = keyboard.GlobalHotKeys({
+                combo: lambda: threading.Thread(target=self.toggle, daemon=True).start()
+            })
             self.hotkeys.start()
+            self._set_status("Raccourci enregistré", "Prêt")
         except Exception as exc:  # noqa: BLE001
             self._set_status(f"Raccourci invalide : {exc}", "")
 
@@ -364,8 +362,8 @@ class PlumeApp:
         api = Api(self)
         self.window = _create_window(
             "Plume", ui_file("index.html"), js_api=api,
-            width=420, height=660, resizable=True, frameless=False,
-            easy_drag=False, min_size=(400, 600),
+            width=420, height=700, resizable=True, frameless=False,
+            easy_drag=False, min_size=(400, 620),
         )
         self.bubble = _create_window(
             "PlumeBubble", ui_file("bubble.html"),
@@ -463,13 +461,19 @@ class Api:
         try:
             self.app.window.minimize()
         except Exception:
-            pass
+            try:
+                self.app.window.hide()
+            except Exception:
+                pass
 
     def hide_window(self):
         try:
             self.app.window.hide()
         except Exception:
-            pass
+            try:
+                self.app.window.minimize()
+            except Exception:
+                pass
 
     def quit(self):
         self.app.quit()
