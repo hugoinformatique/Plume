@@ -10,12 +10,16 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
+import requests
 import webview
 
 from sttlocal import DictationEngine, Recorder, clean_transcript, copy_text, paste_text
@@ -32,6 +36,9 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
+APP_VERSION = "0.4.7"
+GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
+INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
 
 def resource_dir() -> str:
@@ -72,6 +79,50 @@ def set_autostart(enable: bool) -> None:
         pass
 
 
+def version_key(version: str) -> tuple[int, ...]:
+    """Return a comparable numeric version tuple from 'v0.4.7' or '0.4.7'."""
+    cleaned = version.strip().lower().lstrip("v")
+    return tuple(int(part) for part in re.findall(r"\d+", cleaned))
+
+
+def latest_release_info() -> dict:
+    response = requests.get(
+        GITHUB_RELEASES_URL,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"Plume/{APP_VERSION}",
+        },
+        timeout=8,
+    )
+    response.raise_for_status()
+    release = response.json()
+    tag = str(release.get("tag_name") or "")
+    latest_version = tag.lstrip("v") or APP_VERSION
+    installer = None
+    for asset in release.get("assets", []):
+        name = str(asset.get("name") or "")
+        if INSTALLER_RE.match(name):
+            installer = asset
+            break
+    if installer is None:
+        return {
+            "available": False,
+            "current_version": APP_VERSION,
+            "latest_version": latest_version,
+            "message": "Aucun installeur Plume trouvé sur la dernière release.",
+        }
+    return {
+        "available": version_key(latest_version) > version_key(APP_VERSION),
+        "current_version": APP_VERSION,
+        "latest_version": latest_version,
+        "tag_name": tag,
+        "release_url": release.get("html_url"),
+        "asset_name": installer.get("name"),
+        "asset_size": installer.get("size"),
+        "download_url": installer.get("browser_download_url"),
+    }
+
+
 class PlumeApp:
     def __init__(self) -> None:
         self.config = Config.load()
@@ -90,6 +141,7 @@ class PlumeApp:
         self._level_stop = threading.Event()
         self.metrics_path = config_dir() / "metrics.csv"
         self.recordings_dir = config_dir() / "recordings"
+        self._update_info: dict | None = None
 
     # ---- engine (kept warm) -------------------------------------------------
     def _engine_params(self) -> tuple:
@@ -141,6 +193,9 @@ class PlumeApp:
 
     def _bubble_state(self, state: str, text: str) -> None:
         self._js(self.bubble, f"window.plumeBubble && plumeBubble.setState({json.dumps(state)}, {json.dumps(text)})")
+
+    def _set_update_ui(self, info: dict) -> None:
+        self._js(self.window, f"window.plume && plume.setUpdate({json.dumps(info)})")
 
     # ---- bubble window ------------------------------------------------------
     def _place_bubble(self) -> None:
@@ -333,12 +388,67 @@ class PlumeApp:
         except Exception:
             pass
 
+    # ---- updates -----------------------------------------------------------
+    def check_for_update(self, notify: bool = True) -> dict:
+        try:
+            info = latest_release_info()
+            self._update_info = info if info.get("available") else None
+        except Exception as exc:  # noqa: BLE001
+            message = "Release GitHub inaccessible. Le dépôt Plume est probablement privé."
+            if "404" not in str(exc):
+                message = f"Recherche de mise à jour impossible : {exc}"
+            info = {
+                "available": False,
+                "current_version": APP_VERSION,
+                "latest_version": APP_VERSION,
+                "message": message,
+            }
+        if notify:
+            self._set_update_ui(info)
+        return info
+
+    def _download_and_launch_update(self) -> None:
+        info = self._update_info or self.check_for_update(notify=False)
+        if not info.get("available") or not info.get("download_url"):
+            self._set_update_ui({
+                "available": False,
+                "current_version": APP_VERSION,
+                "latest_version": APP_VERSION,
+                "message": "Plume est déjà à jour.",
+            })
+            return
+        try:
+            self._set_update_ui({**info, "installing": True, "message": "Téléchargement de la mise à jour…"})
+            update_dir = Path(tempfile.gettempdir()) / "PlumeUpdate"
+            update_dir.mkdir(parents=True, exist_ok=True)
+            dest = update_dir / str(info["asset_name"])
+            part = dest.with_suffix(dest.suffix + ".part")
+            with requests.get(
+                str(info["download_url"]),
+                headers={"User-Agent": f"Plume/{APP_VERSION}"},
+                stream=True,
+                timeout=30,
+            ) as response:
+                response.raise_for_status()
+                with part.open("wb") as fh:
+                    for chunk in response.iter_content(chunk_size=1024 * 512):
+                        if chunk:
+                            fh.write(chunk)
+            part.replace(dest)
+            self._set_update_ui({**info, "installing": True, "message": "Lancement de l'installeur…"})
+            subprocess.Popen([str(dest), "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS"])
+            time.sleep(0.5)
+            self.quit()
+        except Exception as exc:  # noqa: BLE001
+            self._set_update_ui({**info, "installing": False, "message": f"Mise à jour impossible : {exc}"})
+
     # ---- lifecycle ----------------------------------------------------------
     def _on_started(self) -> None:
         self._start_tray()
         self._install_hotkey()
         set_autostart(bool(self.config.get("autostart")))
         threading.Thread(target=self._preload, daemon=True).start()
+        threading.Thread(target=self.check_for_update, daemon=True).start()
 
     def quit(self) -> None:
         try:
@@ -396,6 +506,7 @@ class Api:
         return {
             "words": self.app.vocab.to_list(),
             "history": c.get("history", []),
+            "app_version": APP_VERSION,
             "config": {
                 "language": c.get("language"), "model": c.get("model"),
                 "profile": profile, "cleanup": c.get("cleanup"),
@@ -477,6 +588,13 @@ class Api:
 
     def quit(self):
         self.app.quit()
+
+    def check_update(self):
+        return self.app.check_for_update(notify=True)
+
+    def install_update(self):
+        threading.Thread(target=self.app._download_and_launch_update, daemon=True).start()
+        return {"started": True}
 
 
 def main() -> int:

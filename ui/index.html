@@ -66,6 +66,20 @@
   .seg button.active{color:var(--ink);background:var(--glass);
     box-shadow:0 6px 16px -12px rgba(20,24,33,.5), inset 0 1px 1px var(--hair)}
 
+  .updatebar{display:none;align-items:center;gap:10px;padding:9px 10px;border-radius:15px;
+    background:var(--ink);color:#fff;border:1px solid var(--hair-soft);
+    box-shadow:0 14px 28px -22px rgba(20,24,33,.8)}
+  @media (prefers-color-scheme: dark){.updatebar{color:#0f1115}}
+  .updatebar.show{display:flex;animation:enter .45s var(--ease) both}
+  .updatebar svg{width:17px;height:17px;flex:none}
+  .updatebar .txt{min-width:0;flex:1}
+  .updatebar .lbl{font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .updatebar .sub{font-size:10.8px;opacity:.72;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .updatebar button{border:0;border-radius:10px;background:#fff;color:#0f1115;font-family:inherit;
+    font-size:11.5px;font-weight:800;padding:8px 10px;cursor:pointer;white-space:nowrap}
+  @media (prefers-color-scheme: dark){.updatebar button{background:#0f1115;color:#fff}}
+  .updatebar button:disabled{opacity:.55;cursor:default}
+
   .panel{display:none;flex-direction:column;gap:8px;animation:enter .55s var(--ease) both;min-height:0}
   .panel.show{display:flex;flex:1;overflow:hidden}
   #tab-reglages.show,#tab-mots.show{overflow-y:auto;overflow-x:hidden;padding-right:3px;scrollbar-gutter:stable}
@@ -157,6 +171,10 @@
   .tg.on{background:var(--accent)}
   .tg.on::after{transform:translateX(18px)}
   @media (prefers-color-scheme: dark){.tg.on::after{background:#0f1115}}
+  .smallbtn{border:0;border-radius:11px;background:var(--accent);color:#fff;font-family:inherit;
+    font-size:12px;font-weight:700;padding:8px 11px;cursor:pointer;min-width:118px}
+  @media (prefers-color-scheme: dark){.smallbtn{color:#0f1115}}
+  .smallbtn:disabled{opacity:.48;cursor:default}
 
   .advtoggle{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;cursor:pointer;
     background:transparent;color:var(--muted);font-family:inherit;font-size:12px;font-weight:600;padding:6px;
@@ -206,6 +224,12 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.4"/><circle cx="8" cy="16" r="2.4"/></svg>
         Réglages
       </button>
+    </div>
+
+    <div class="updatebar" id="updateBar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      <div class="txt"><div class="lbl" id="updateTitle">Nouvelle mise à jour disponible</div><div class="sub" id="updateSub"></div></div>
+      <button id="updateNow">Mettre à jour</button>
     </div>
 
     <section class="panel show" id="tab-dictee">
@@ -287,6 +311,10 @@
             <div><div class="lbl">Démarrer avec Windows</div><div class="sub">Lancer Plume au démarrage</div></div>
             <div class="tg" id="tgStartup"></div>
           </div>
+          <div class="row">
+            <div><div class="lbl">Mise à jour</div><div class="sub" id="updateLine">Recherche automatique au lancement</div></div>
+            <button class="smallbtn" id="checkUpdate">Vérifier</button>
+          </div>
         </div>
       </div>
 
@@ -325,6 +353,8 @@
   const api = new Proxy({}, { get:(_,k)=> (...a)=> hasAPI() ? window.pywebview.api[k](...a) : Promise.resolve() });
   const state = {
     recording:false,
+    appVersion:"",
+    update:null,
     words:[{from:"kubernét",to:"Kubernetes"},{from:"",to:"Nginx"},{from:"doquer",to:"Docker"}],
     history:[],
   };
@@ -374,8 +404,53 @@
     api.get_state().then(s=>{
       if(s&&s.words){ state.words=s.words; renderChips(); }
       if(s&&s.history){ state.history=s.history; renderHistory(); }
+      if(s&&s.app_version){ state.appVersion=s.app_version; updateLine.textContent=`Version installée ${s.app_version}`; }
       if(s&&s.config) applyConfig(s.config);
     });
+  });
+
+  const updateBar=document.getElementById("updateBar");
+  const updateTitle=document.getElementById("updateTitle");
+  const updateSub=document.getElementById("updateSub");
+  const updateNow=document.getElementById("updateNow");
+  const updateLine=document.getElementById("updateLine");
+  const checkUpdate=document.getElementById("checkUpdate");
+  function setUpdate(info){
+    state.update=info||null;
+    const available=!!(info&&info.available);
+    updateBar.classList.toggle("show", available || !!(info&&info.installing));
+    if(info&&info.installing){
+      updateTitle.textContent="Mise à jour en cours";
+      updateSub.textContent=info.message||"Préparation…";
+      updateNow.textContent="Patiente…";
+      updateNow.disabled=true;
+    }else if(available){
+      updateTitle.textContent=`Plume ${info.latest_version} disponible`;
+      updateSub.textContent=`Version installée ${info.current_version}`;
+      updateNow.textContent="Mettre à jour";
+      updateNow.disabled=false;
+    }else{
+      updateNow.textContent="Mettre à jour";
+      updateNow.disabled=false;
+    }
+    if(info&&info.message){
+      updateLine.textContent=info.message;
+    }else if(available){
+      updateLine.textContent=`Nouvelle version ${info.latest_version} disponible`;
+    }else if(info&&info.current_version){
+      updateLine.textContent=`À jour : ${info.current_version}`;
+    }
+  }
+  updateNow.addEventListener("click", ()=>{
+    updateNow.disabled=true;
+    updateNow.textContent="Téléchargement…";
+    api.install_update();
+  });
+  checkUpdate.addEventListener("click", ()=>{
+    checkUpdate.disabled=true;
+    updateLine.textContent="Recherche en cours…";
+    api.check_update().then(info=>{ setUpdate(info); checkUpdate.disabled=false; })
+      .catch(()=>{ updateLine.textContent="Recherche impossible"; checkUpdate.disabled=false; });
   });
 
   const chips=document.getElementById("chips");
@@ -433,6 +508,7 @@
     setRecording,
     setTranscript:(t)=>{ const el=document.getElementById("transcript"); el.textContent=t||"—"; el.classList.toggle("empty",!t); },
     setHistory:(items)=>{ state.history=Array.isArray(items)?items:[]; renderHistory(); },
+    setUpdate,
   };
   renderChips();
   renderHistory();
