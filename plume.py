@@ -1,8 +1,8 @@
 """Plume — local voice dictation for Windows, web-glass UI.
 
 Native core (audio, engine, global hotkey, paste, tray) in Python; the UI is an
-embedded web view (pywebview). This is a taskbar app: a frameless native window
-plus a tray icon and a floating listening bubble — no browser chrome.
+embedded web view (pywebview). This is a taskbar app with a compact native
+window, tray icon and a floating listening bubble.
 """
 
 from __future__ import annotations
@@ -84,6 +84,7 @@ class PlumeApp:
         self.bubble = None
         self.tray = None
         self.hotkeys = None
+        self._hotkey = None
         self.recording = False
         self.worker: threading.Thread | None = None
         self._level_stop = threading.Event()
@@ -278,11 +279,22 @@ class PlumeApp:
         if self.hotkeys is not None:
             try:
                 self.hotkeys.stop()
+                self.hotkeys.join(timeout=0.5)
             except Exception:
                 pass
+            self.hotkeys = None
+            self._hotkey = None
         combo = self.config.get("hotkey") or "<ctrl>+<space>"
         try:
-            self.hotkeys = keyboard.GlobalHotKeys({combo: self.toggle})
+            self._hotkey = keyboard.HotKey(keyboard.HotKey.parse(combo), self.toggle)
+
+            def for_canonical(fn):
+                return lambda key: fn(self.hotkeys.canonical(key))
+
+            self.hotkeys = keyboard.Listener(
+                on_press=for_canonical(self._hotkey.press),
+                on_release=for_canonical(self._hotkey.release),
+            )
             self.hotkeys.start()
         except Exception as exc:  # noqa: BLE001
             self._set_status(f"Raccourci invalide : {exc}", "")
@@ -352,7 +364,7 @@ class PlumeApp:
         api = Api(self)
         self.window = _create_window(
             "Plume", ui_file("index.html"), js_api=api,
-            width=420, height=640, resizable=False, frameless=True,
+            width=420, height=660, resizable=True, frameless=False,
             easy_drag=False, min_size=(400, 600),
         )
         self.bubble = _create_window(

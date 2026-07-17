@@ -72,7 +72,8 @@
     box-shadow:0 6px 16px -12px rgba(20,24,33,.5), inset 0 1px 1px var(--hair)}
 
   .panel{display:none;flex-direction:column;gap:10px;animation:enter .55s var(--ease) both;min-height:0}
-  .panel.show{display:flex}
+  .panel.show{display:flex;flex:1;overflow:hidden}
+  #tab-reglages.show,#tab-mots.show{overflow:auto;padding-right:3px}
   @keyframes enter{from{opacity:0;transform:translateY(14px);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
 
   .card{border-radius:var(--radius);padding:6px;background:var(--glass-2);
@@ -105,7 +106,7 @@
   .eyebrow{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
   .transcript{font-size:14px;line-height:1.55;color:var(--ink);min-height:44px}
   .transcript.empty{color:var(--muted)}
-  .history{display:flex;flex-direction:column;gap:7px;max-height:104px;overflow:auto}
+  .history{display:flex;flex-direction:column;gap:7px;overflow:hidden}
   .histitem{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;
     padding:9px 10px;border-radius:14px;background:var(--glass);border:1px solid var(--hair-soft)}
   .histtext{font-size:12.5px;line-height:1.35;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -167,20 +168,19 @@
   .advtoggle:hover{color:var(--ink)}
   .advtoggle svg{width:14px;height:14px;transition:transform .5s var(--ease)}
   .adv{max-height:0;overflow:hidden;transition:max-height .6s var(--ease),opacity .5s var(--ease);opacity:.4}
-  .adv.open{max-height:292px;opacity:1}
+  .adv.open{max-height:360px;opacity:1}
   @media (max-height:640px){
     .topbar{padding-top:8px}
     .seg button{padding:7px 8px}
     .hero{padding:10px 12px}
     .recwrap{width:92px;height:92px}
     .recbtn{width:72px;height:72px}
-    .history{max-height:82px}
     .muted-note{display:none}
     .row{padding:7px 2px}
   }
   body.advopen .advtoggle svg{transform:rotate(180deg)}
-  .chips::-webkit-scrollbar{width:6px}
-  .chips::-webkit-scrollbar-thumb{background:var(--hair-soft);border-radius:6px}
+  .chips::-webkit-scrollbar,#tab-reglages::-webkit-scrollbar,#tab-mots::-webkit-scrollbar{width:6px}
+  .chips::-webkit-scrollbar-thumb,#tab-reglages::-webkit-scrollbar-thumb,#tab-mots::-webkit-scrollbar-thumb{background:var(--hair-soft);border-radius:6px}
 </style>
 </head>
 <body>
@@ -410,13 +410,19 @@
   function shortTime(ts){ try{return new Date(ts).toLocaleString([], {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});}catch{return "";} }
   function renderHistory(){ historyEl.innerHTML="";
     if(!state.history.length){ historyEl.innerHTML='<div class="transcript empty">Aucune dictée récente.</div>'; return; }
-    state.history.forEach((h,i)=>{ const row=document.createElement("div"); row.className="histitem";
+    state.history.slice(0,3).forEach((h,i)=>{ const row=document.createElement("div"); row.className="histitem";
       row.innerHTML=`<div><div class="histtext"></div><div class="histtime">${shortTime(h.timestamp)}</div></div>
         <button class="iconbtn" title="Copier" data-copy="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         <button class="iconbtn" title="Recoller" data-paste="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8l2 2v14H6V6l2-2Z"/><path d="M9 12h6M9 16h6"/></svg></button>`;
       row.querySelector(".histtext").textContent=h.text || "";
       historyEl.appendChild(row);
     });
+    if(state.history.length>3){
+      const more=document.createElement("div");
+      more.className="transcript empty";
+      more.textContent=`${state.history.length-3} ancienne(s) dictée(s) masquée(s)`;
+      historyEl.appendChild(more);
+    }
     historyEl.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",()=>api.copy_history(+b.dataset.copy)));
     historyEl.querySelectorAll("[data-paste]").forEach(b=>b.addEventListener("click",()=>api.paste_history(+b.dataset.paste)));
   }
