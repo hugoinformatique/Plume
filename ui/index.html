@@ -106,9 +106,10 @@
   .eyebrow{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
   .transcript{font-size:14px;line-height:1.55;color:var(--ink);min-height:44px}
   .transcript.empty{color:var(--muted)}
-  .history{display:flex;flex-direction:column;gap:6px;max-height:178px;overflow-y:auto;overflow-x:hidden;padding-right:2px}
-  .histitem{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;
-    padding:9px 10px;border-radius:14px;background:var(--glass);border:1px solid var(--hair-soft)}
+  .history{display:flex;flex-direction:column;gap:6px;max-height:178px;overflow-y:auto;overflow-x:hidden;padding-right:2px;min-width:0;width:100%}
+  .histitem{display:grid;grid-template-columns:minmax(0,1fr) 30px 30px;align-items:center;gap:8px;
+    padding:9px 10px;border-radius:14px;background:var(--glass);border:1px solid var(--hair-soft);min-width:0;max-width:100%;overflow:hidden}
+  .histitem > div{min-width:0;overflow:hidden}
   .histtext{font-size:12.5px;line-height:1.35;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .histtime{font-size:10.5px;color:var(--muted);margin-top:2px}
   .iconbtn{width:30px;height:30px;border:0;border-radius:10px;background:var(--hair-soft);color:var(--ink);
