@@ -146,7 +146,7 @@ class PlumeApp:
         if self.bubble is None:
             return
         sw, sh = screen_size()
-        w, h = 300, 92
+        w, h = 252, 64
         x = (sw - w) // 2
         y = 56 if self.config.get("bubble_position") == "top" else sh - h - 96
         try:
@@ -352,13 +352,13 @@ class PlumeApp:
         api = Api(self)
         self.window = _create_window(
             "Plume", ui_file("index.html"), js_api=api,
-            width=440, height=684, resizable=False, frameless=True,
+            width=420, height=640, resizable=False, frameless=True,
             easy_drag=False, min_size=(400, 600),
         )
         self.bubble = _create_window(
             "PlumeBubble", ui_file("bubble.html"),
-            width=300, height=92, resizable=False, frameless=True,
-            on_top=True, transparent=True, hidden=True, focus=False,
+            width=252, height=64, resizable=False, frameless=True,
+            on_top=True, transparent=True, background_color="#111318", hidden=True, focus=False,
         )
         webview.start(self._on_started, debug=False)
 
@@ -368,7 +368,7 @@ def _create_window(title, url, **kwargs):
     try:
         return webview.create_window(title, url, **kwargs)
     except TypeError:
-        for opt in ("focus", "min_size", "easy_drag", "transparent"):
+        for opt in ("focus", "min_size", "easy_drag", "transparent", "background_color"):
             kwargs.pop(opt, None)
         return webview.create_window(title, url, **kwargs)
 

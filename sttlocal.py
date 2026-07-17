@@ -169,8 +169,8 @@ FILLER_RE = re.compile(
 SPACE_RE = re.compile(r"\s+")
 REPEATED_WORD_RE = re.compile(r"\b(\w{2,})(?:\s+\1\b){1,3}", flags=re.IGNORECASE)
 COMMAND_REPLACEMENTS = (
-    (re.compile(r"\s*\b(?:nouvelle ligne|a la ligne|à la ligne)\b\s*", re.IGNORECASE), "\n"),
-    (re.compile(r"\s*\b(?:nouveau paragraphe)\b\s*", re.IGNORECASE), "\n\n"),
+    (re.compile(r"\s*\b(?:nouveau paragraphe|nouveau paragraph|paragraphe suivant|double saut de ligne)\b\s*", re.IGNORECASE), "\n\n"),
+    (re.compile(r"\s*\b(?:nouvelle ligne|nouvel ligne|a la ligne|à la ligne|aller a la ligne|aller à la ligne|retour a la ligne|retour à la ligne|retour ligne|saut de ligne|ligne suivante)\b\s*", re.IGNORECASE), "\n"),
     (re.compile(r"\s*\bpoint d'interrogation\b\s*", re.IGNORECASE), "? "),
     (re.compile(r"\s*\bpoint d'exclamation\b\s*", re.IGNORECASE), "! "),
     (re.compile(r"\s*\bdeux points\b\s*", re.IGNORECASE), ": "),

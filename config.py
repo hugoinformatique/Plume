@@ -78,7 +78,8 @@ _DISP_TO_PYNPUT = {
     "ctrl": "<ctrl>", "control": "<ctrl>", "alt": "<alt>", "option": "<alt>",
     "maj": "<shift>", "shift": "<shift>", "cmd": "<cmd>", "win": "<cmd>",
     "espace": "<space>", "space": "<space>", "entrée": "<enter>", "enter": "<enter>",
-    "tab": "<tab>",
+    "tab": "<tab>", "échap": "<esc>", "echap": "<esc>", "escape": "<esc>",
+    "haut": "<up>", "bas": "<down>", "gauche": "<left>", "droite": "<right>",
 }
 
 
