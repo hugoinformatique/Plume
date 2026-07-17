@@ -1,5 +1,5 @@
 #define MyAppName "Plume"
-#define MyAppVersion "0.4.1"
+#define MyAppVersion "0.4.2"
 #define MyAppPublisher "Hugo Informatique"
 #define MyAppExeName "Plume.exe"
 
