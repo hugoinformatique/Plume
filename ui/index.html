@@ -55,11 +55,6 @@
   .dot{width:6px;height:6px;border-radius:50%;background:var(--muted);transition:background .4s var(--ease)}
   body.rec .dot{background:var(--ink);animation:blink 1.3s var(--ease) infinite}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
-  .wbtn{width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--muted);
-    display:grid;place-items:center;cursor:pointer;transition:all .4s var(--ease);-webkit-app-region:no-drag;position:relative;z-index:20}
-  .wbtn:hover{background:var(--glass);color:var(--ink)}
-  .wbtn svg{width:15px;height:15px}
-
   main{flex:1;display:flex;flex-direction:column;padding:4px 12px 12px;gap:8px;overflow:hidden;min-height:0}
 
   .seg{display:flex;padding:4px;gap:4px;border-radius:16px;background:var(--glass-2);
@@ -195,12 +190,6 @@
       <h1>Plume</h1>
     </div>
     <div class="statuschip"><span class="dot" id="dot"></span><span id="statusMini">Prêt</span></div>
-    <button class="wbtn" id="minBtn" title="Réduire">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 12h14"/></svg>
-    </button>
-    <button class="wbtn" id="closeBtn" title="Fermer dans la barre">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
-    </button>
   </div>
 
   <main>
@@ -355,15 +344,6 @@
 
   const advToggle=document.getElementById("advToggle"), adv=document.getElementById("adv");
   advToggle.addEventListener("click", ()=>{ adv.classList.toggle("open"); document.body.classList.toggle("advopen"); });
-  function bindWindowButton(id, action){
-    const btn=document.getElementById(id);
-    const run=e=>{ e.preventDefault(); e.stopPropagation(); api[action](); };
-    btn.addEventListener("pointerup", run);
-    btn.addEventListener("click", run);
-  }
-  bindWindowButton("minBtn", "minimize");
-  bindWindowButton("closeBtn", "hide_window");
-
   // persist settings
   const settingMap = { lang:"language", model:"model", bubble:"bubble_position", cleanup:"cleanup", compute:"compute", profile:"profile" };
   Object.keys(settingMap).forEach(id=>{ const el=document.getElementById(id);

@@ -11,8 +11,8 @@ from pathlib import Path
 
 
 # --- Palette -----------------------------------------------------------------
-BRAND = "#5B6EF5"        # primary indigo
-BRAND_DARK = "#3E4BD8"
+BRAND = "#0F1115"        # monochrome app icon background
+BRAND_DARK = "#000000"
 INK = "#12141C"          # near-black surface (bubble / dark UI)
 INK_SOFT = "#1B1E29"
 SURFACE = "#F6F7FB"      # light window background
@@ -72,7 +72,7 @@ def _feather_layer(size: int, fg: str, spine: str):
 
 
 def make_icon_image(size: int = 64, bg: str = BRAND, fg: str = "#FFFFFF"):
-    """Return an RGBA PIL image: a rounded brand tile with a white feather."""
+    """Return an RGBA PIL image: a monochrome rounded tile with a feather."""
     from PIL import Image, ImageDraw
 
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
