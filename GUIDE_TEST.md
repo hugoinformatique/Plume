@@ -16,11 +16,11 @@ La CI construit l'installeur Windows automatiquement. Pour déclencher une relea
 
 ```bash
 # depuis le repo, sur le commit à tester
-git tag v0.4.7
-git push origin v0.4.7
+git tag v0.4.8
+git push origin v0.4.8
 ```
 
-Puis, sur GitHub : onglet **Releases** → `v0.4.7` → télécharge **`Plume-Setup-0.4.7.exe`**.
+Puis, sur GitHub : onglet **Releases** → `v0.4.8` → télécharge **`Plume-Setup-0.4.8.exe`**.
 (Le build prend ~5–10 min. Tu peux suivre l'avancement dans l'onglet **Actions**.)
 
 ### Option B — Sans tag : artifact d'un build manuel
@@ -39,7 +39,7 @@ git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
 
-Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.7.exe`.
+Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.8.exe`.
 
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
@@ -56,7 +56,7 @@ python plume.py
 
 ## 2. Installer et lancer
 
-1. Lance `Plume-Setup-0.4.7.exe` (installation sans droits admin, dans ton profil utilisateur).
+1. Lance `Plume-Setup-0.4.8.exe` (installation sans droits admin, dans ton profil utilisateur).
 2. Ouvre **Plume** depuis le menu Démarrer. La fenêtre est une **app native** (verre dépoli, noir & blanc), pas un navigateur.
 3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt à dicter »** quand le moteur est chaud.
 

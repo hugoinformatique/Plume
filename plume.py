@@ -36,7 +36,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.7"
+APP_VERSION = "0.4.8"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -80,7 +80,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.7' or '0.4.7'."""
+    """Return a comparable numeric version tuple from 'v0.4.8' or '0.4.8'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
