@@ -138,6 +138,21 @@ Results (latency + real-time factor RTF) are written to `benchmark-results/resul
 Keep a few short clips in `samples/` too: for dictation, low absolute latency on
 short utterances matters more than RTF on long files.
 
+## Performance Over Time
+
+Every real dictation from the app also logs a row to `metrics.csv` in the
+per-user config dir (`%APPDATA%\Plume\metrics.csv` on Windows), as long as the
+"metrics" setting is on (default). Summarize that history instead of relying
+on a single one-off benchmark:
+
+```powershell
+python perflog.py --summary
+python perflog.py --tail 20
+```
+
+This is how CPU vs NPU vs iGPU and model-size choices get validated against
+actual day-to-day usage on the target machine, not just a lab run.
+
 ## Engine Backends
 
 The STT engine is pluggable. Pick it with `--backend`:

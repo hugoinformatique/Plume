@@ -10,6 +10,7 @@ given backend's dependencies are not installed.
 
 from __future__ import annotations
 
+import os
 import time
 import wave
 from dataclasses import dataclass
@@ -96,6 +97,11 @@ class FasterWhisperBackend:
         language: str | None = "fr",
         beam_size: int = 5,
         vad: bool = True,
+        cpu_threads: int = 0,
+        num_workers: int = 1,
+        no_speech_threshold: float = 0.6,
+        log_prob_threshold: float = -1.0,
+        compression_ratio_threshold: float = 2.4,
         **_ignored,
     ) -> None:
         self.model_name = model_name
@@ -104,6 +110,14 @@ class FasterWhisperBackend:
         self.language = language
         self.beam_size = beam_size
         self.vad = vad
+        # 0 lets CTranslate2 pick a default (all logical cores); pin it
+        # explicitly on Windows/Intel hybrid CPUs (P/E/LP cores) so the
+        # scheduler doesn't spread threads onto low-power cores.
+        self.cpu_threads = cpu_threads or max(1, (os.cpu_count() or 4) - 2)
+        self.num_workers = num_workers
+        self.no_speech_threshold = no_speech_threshold
+        self.log_prob_threshold = log_prob_threshold
+        self.compression_ratio_threshold = compression_ratio_threshold
         self._model = None
 
     @property
@@ -123,6 +137,8 @@ class FasterWhisperBackend:
             self.model_name,
             device=self.device,
             compute_type=self.compute_type,
+            cpu_threads=self.cpu_threads if self.device == "cpu" else 0,
+            num_workers=self.num_workers,
         )
 
     def transcribe(self, path: Path, hotwords: str | None = None,
@@ -138,6 +154,9 @@ class FasterWhisperBackend:
             condition_on_previous_text=False,
             hotwords=hotwords or None,
             initial_prompt=initial_prompt or None,
+            no_speech_threshold=self.no_speech_threshold,
+            log_prob_threshold=self.log_prob_threshold,
+            compression_ratio_threshold=self.compression_ratio_threshold,
         )
         text = " ".join(segment.text.strip() for segment in segments).strip()
         elapsed = time.perf_counter() - started
