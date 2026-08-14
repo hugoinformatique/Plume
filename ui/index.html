@@ -94,10 +94,17 @@
   #tab-reglages.show,#tab-mots.show{overflow-y:auto;overflow-x:hidden;padding-right:3px;scrollbar-gutter:stable}
   @keyframes enter{from{opacity:0;transform:translateY(14px);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
 
+  /* Glass is the signature touch for the one focal gesture (the mic).
+     Everything else reads flatter and quieter so the hierarchy stays
+     legible instead of every card competing at the same shine level. */
   .card{border-radius:var(--radius);padding:5px;background:var(--glass-2);
     border:1px solid var(--hair-soft);box-shadow:var(--shadow);backdrop-filter:blur(30px) saturate(1.1)}
   .card .inner{border-radius:var(--radius-in);background:var(--glass);
     border:1px solid var(--hair);box-shadow:inset 0 1px 1px var(--hair);padding:11px}
+  .card--flat{border-radius:var(--radius);padding:5px;background:transparent;
+    border:1px solid var(--hair-soft);box-shadow:none;backdrop-filter:none}
+  .card--flat .inner{border-radius:var(--radius-in);background:var(--glass-2);
+    border:1px solid var(--hair-soft);box-shadow:none;padding:11px}
 
   .hero{display:flex;flex-direction:column;align-items:center;gap:9px;padding:14px 14px 12px}
   .recwrap{position:relative;width:104px;height:104px;display:grid;place-items:center}
@@ -256,13 +263,13 @@
           <div class="hint">Appuie sur <span class="kbd" id="hotHint">Ctrl + Espace</span> n'importe où</div>
         </div>
       </div>
-      <div class="card">
+      <div class="card--flat">
         <div class="inner">
           <div class="eyebrow">Dernière transcription</div>
           <div class="transcript empty" id="transcript">Ta dictée apparaîtra ici, puis se collera dans l'app active.</div>
         </div>
       </div>
-      <div class="card">
+      <div class="card--flat">
         <div class="inner">
           <div class="eyebrow">Historique local</div>
           <div class="history" id="history"></div>
@@ -272,7 +279,7 @@
     </section>
 
     <section class="panel" id="tab-mots">
-      <div class="card">
+      <div class="card--flat">
         <div class="inner">
           <div class="eyebrow">Corriger un mot</div>
           <div class="wordform">
@@ -288,7 +295,7 @@
     </section>
 
     <section class="panel" id="tab-reglages">
-      <div class="card">
+      <div class="card--flat">
         <div class="inner">
           <div class="row">
             <div><div class="lbl">Langue</div><div class="sub">Langue de dictée</div></div>
@@ -333,7 +340,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
       </button>
       <div class="adv" id="adv">
-        <div class="card">
+        <div class="card--flat">
           <div class="inner">
             <div class="row">
               <div><div class="lbl">Moteur</div><div class="sub">Accélération</div></div>
