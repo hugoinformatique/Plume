@@ -6,8 +6,9 @@
 <title>Plume</title>
 <style>
   :root{
-    --ink:#0f1115; --ink-2:#3a3f47; --muted:#8b909a;
+    --ink:#0f1115; --ink-2:#3a3f47; --muted:#767b86;
     --accent:#0f1115;            /* monochrome accent = ink */
+    --focus-ring:rgba(15,17,21,.45);
     --glass:rgba(255,255,255,.62); --glass-2:rgba(255,255,255,.40);
     --hair:rgba(255,255,255,.9); --hair-soft:rgba(15,17,21,.09);
     --shadow:0 18px 46px -22px rgba(20,24,33,.4);
@@ -17,12 +18,20 @@
   }
   @media (prefers-color-scheme: dark){
     :root{
-      --ink:#f2f3f6; --ink-2:#c3c7d0; --muted:#868b96; --accent:#f2f3f6;
+      --ink:#f2f3f6; --ink-2:#c3c7d0; --muted:#9297a1; --accent:#f2f3f6;
+      --focus-ring:rgba(242,243,246,.55);
       --glass:rgba(255,255,255,.06); --glass-2:rgba(255,255,255,.04);
       --hair:rgba(255,255,255,.12); --hair-soft:rgba(255,255,255,.08);
       --shadow:0 22px 56px -24px rgba(0,0,0,.8);
     }
   }
+  @media (prefers-reduced-motion: reduce){
+    *{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;scroll-behavior:auto !important}
+  }
+  :focus{outline:none}
+  :focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;border-radius:8px}
+  .recbtn:focus-visible,.iconbtn:focus-visible,.tg:focus-visible{outline-offset:3px}
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{
@@ -99,7 +108,8 @@
   .recbtn{position:relative;width:82px;height:82px;border-radius:50%;border:0;cursor:pointer;
     background:var(--glass);border:1px solid var(--hair);color:var(--ink);
     box-shadow:0 16px 34px -18px rgba(20,24,33,.55), inset 0 2px 2px var(--hair), inset 0 -8px 16px rgba(20,24,33,.06);
-    display:grid;place-items:center;transition:transform .5s var(--ease),background .5s var(--ease)}
+    display:grid;place-items:center;transition:transform .5s var(--ease),background .5s var(--ease),box-shadow .5s var(--ease)}
+  .recbtn:hover{transform:translateY(-1px);box-shadow:0 20px 40px -18px rgba(20,24,33,.6), inset 0 2px 2px var(--hair), inset 0 -8px 16px rgba(20,24,33,.06)}
   .recbtn:active{transform:scale(.95)}
   .recbtn svg{width:30px;height:30px}
   .recbtn .stop{display:none;width:21px;height:21px;border-radius:6px;background:currentColor}
@@ -305,11 +315,11 @@
           </div>
           <div class="row">
             <div><div class="lbl">Collage automatique</div><div class="sub">Coller dans l'app active</div></div>
-            <div class="tg on" id="tgPaste"></div>
+            <div class="tg on" id="tgPaste" role="switch" aria-checked="true" aria-label="Collage automatique" tabindex="0"></div>
           </div>
           <div class="row">
             <div><div class="lbl">Démarrer avec Windows</div><div class="sub">Lancer Plume au démarrage</div></div>
-            <div class="tg" id="tgStartup"></div>
+            <div class="tg" id="tgStartup" role="switch" aria-checked="false" aria-label="Démarrer avec Windows" tabindex="0"></div>
           </div>
           <div class="row">
             <div><div class="lbl">Mise à jour</div><div class="sub" id="updateLine">Recherche automatique au lancement</div></div>
@@ -390,14 +400,20 @@
     api.set_setting("model", model.value);
   });
   const tgPaste=document.getElementById("tgPaste"), tgStartup=document.getElementById("tgStartup");
-  tgPaste.addEventListener("click", ()=>{ tgPaste.classList.toggle("on"); api.set_setting("autopaste", tgPaste.classList.contains("on")); });
-  tgStartup.addEventListener("click", ()=>{ tgStartup.classList.toggle("on"); api.set_setting("autostart", tgStartup.classList.contains("on")); });
+  function wireToggle(el, settingKey){
+    const flip=()=>{ const on=el.classList.toggle("on"); el.setAttribute("aria-checked", on); api.set_setting(settingKey, on); };
+    el.addEventListener("click", flip);
+    el.addEventListener("keydown", e=>{ if(e.key===" "||e.key==="Enter"){ e.preventDefault(); flip(); } });
+  }
+  wireToggle(tgPaste, "autopaste");
+  wireToggle(tgStartup, "autostart");
 
   function applyConfig(c){ if(!c) return;
     const set=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
     set("lang",c.language); set("model",c.model); set("bubble",c.bubble_position);
     set("cleanup",c.cleanup); set("compute",c.compute); set("profile",c.profile);
-    tgPaste.classList.toggle("on", !!c.autopaste); tgStartup.classList.toggle("on", !!c.autostart);
+    tgPaste.classList.toggle("on", !!c.autopaste); tgPaste.setAttribute("aria-checked", !!c.autopaste);
+    tgStartup.classList.toggle("on", !!c.autostart); tgStartup.setAttribute("aria-checked", !!c.autostart);
     if(c.hotkey_display){ document.getElementById("hotcap").textContent=c.hotkey_display; document.getElementById("hotHint").textContent=c.hotkey_display; }
   }
   window.addEventListener("pywebviewready", ()=>{
