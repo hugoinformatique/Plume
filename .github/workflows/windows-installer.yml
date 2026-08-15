@@ -29,11 +29,53 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-build.txt
+          # OpenVINO *runtime* only: this is what gets bundled so the NPU /
+          # iGPU / OpenVINO-CPU profiles work in the installed app.
+          python -m pip install -r requirements-openvino-runtime.txt
+
+      - name: Convert Whisper to OpenVINO (isolated env)
+        # optimum-intel pulls in torch (multi-GB) and is only needed to produce
+        # the IR files. It lives in its own venv so PyInstaller never sees it
+        # and cannot drag torch into the bundle.
+        run: |
+          # Export with the *same* OpenVINO version that will be bundled: the
+          # runtime refuses IR produced by a newer release, and the two
+          # environments resolve their versions independently.
+          $ov = python -c "import importlib.metadata as m; print(m.version('openvino'))"
+          Write-Host "Exporting with openvino==$ov"
+          python -m venv .convert
+          .\.convert\Scripts\python.exe -m pip install --upgrade pip
+          .\.convert\Scripts\python.exe -m pip install "optimum-intel[openvino]>=1.21" "nncf>=2.14" "openvino==$ov"
+          .\.convert\Scripts\optimum-cli.exe export openvino `
+            --model openai/whisper-small --weight-format int8 `
+            models\openvino\whisper-small
+          # WhisperPipeline needs the tokenizer/detokenizer IR too, and
+          # optimum-cli only *warns* when their conversion fails -- without
+          # this check CI would stay green and ship an OpenVINO that dies on
+          # the user's first dictation.
+          $required = @(
+            "openvino_encoder_model.xml",
+            "openvino_decoder_model.xml",
+            "openvino_tokenizer.xml",
+            "openvino_detokenizer.xml"
+          )
+          foreach ($f in $required) {
+            if (-not (Test-Path "models\openvino\whisper-small\$f")) {
+              throw "OpenVINO export is incomplete: $f is missing"
+            }
+          }
+          Get-ChildItem models\openvino\whisper-small | Select-Object Name, Length
+          # ~3 GB of torch/nncf: reclaim the space before PyInstaller runs.
+          Remove-Item -Recurse -Force .convert
 
       - name: Generate icon assets
         run: python scripts/make_icons.py
 
       - name: Build portable app (PyInstaller)
+        # Fail the build rather than quietly ship an installer whose OpenVINO
+        # profiles are dead (see the spec).
+        env:
+          PLUME_REQUIRE_OPENVINO: "1"
         run: python -m PyInstaller --noconfirm packaging/pyinstaller/Plume.spec
 
       - name: Install Inno Setup
@@ -44,7 +86,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist\installer" | Out-Null
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "packaging\inno\Plume.iss"
 
+      # Only on manual runs: with the OpenVINO runtime and the converted model
+      # bundled, this folder is ~700 MB, and a tagged build already publishes
+      # the installer as a release asset.
       - name: Upload portable app
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
           name: Plume-portable
