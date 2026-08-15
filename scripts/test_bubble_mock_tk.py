@@ -41,7 +41,7 @@ class TestFloatingBubbleWithMockTk(unittest.TestCase):
         self.assertTrue(ok)
         self.mock_tk.Toplevel.assert_called_once_with(self.mock_root)
         self.mock_canvas.pack.assert_called_once()
-        self.assertEqual(len(self.bubble._bars), 7)
+        self.assertEqual(len(self.bubble._bars), 5)
         self.assertIsNotNone(self.bubble._dot)
         self.assertIsNotNone(self.bubble._dot_halo)
         self.assertIsNotNone(self.bubble._dot_spec)

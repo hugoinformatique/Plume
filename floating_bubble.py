@@ -20,22 +20,41 @@ from __future__ import annotations
 
 import math
 import queue
+import sys
 import threading
 
 from config import debug_log
 from ui_theme import FONT_UI, mix
 
+# --- Windows DPI awareness (must be called BEFORE any Tk window) ------------
+def _enable_dpi_awareness() -> None:
+    """Tell Windows to render at native DPI instead of bitmap-upscaling."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        # Per-Monitor DPI Aware v2 (Windows 10 1703+)
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # type: ignore[attr-defined]
+    except Exception:
+        try:
+            import ctypes
+            ctypes.windll.user32.SetProcessDPIAware()  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+_enable_dpi_awareness()
+
 # --- Geometry & Fluid Timing -------------------------------------------------
 CHROMA = "#010101"       # transparent-color key -> rounded corners on Windows
-BUBBLE_W = 276
-BUBBLE_H = 68
-RADIUS = 30              # organic fluid pebble / water droplet curvature
-MARGIN = 40              # distance from the top/bottom edge of the work area
+BUBBLE_W = 200           # compact premium pill width
+BUBBLE_H = 48            # compact premium pill height
+RADIUS = 21              # organic fluid pebble / water droplet curvature
+MARGIN = 36              # distance from the top/bottom edge of the work area
 
-BAR_COUNT = 7            # 7 voice-reactive fluid wave ripples
-BAR_W = 5.0              # rounded droplet capsule width
-BAR_GAP = 11.5
-BAR_MAX = 18.5           # max amplitude (half-height, keeps bars inside the pill)
+BAR_COUNT = 5            # 5 voice-reactive fluid wave ripples (compact)
+BAR_W = 3.5              # thin rounded droplet capsule width
+BAR_GAP = 8.0            # tight spacing
+BAR_MAX = 13.0           # max amplitude (half-height, keeps bars inside the pill)
 
 # 120Hz / High-Refresh-Rate fluid easing (tuned for 10-12ms frame interval)
 FRAME_MS = 12            # ~85-100 fps ultra-fluid animation loop
@@ -99,14 +118,14 @@ def _capsule_points(cx: float, cy: float, half_h: float, w: float) -> list[float
 
 def _specular_crescent_points(w: float, h: float, r: float) -> list[float]:
     """Convex top specular highlight polygon mimicking curved liquid glass button glare."""
-    x1, y1, x2, y2 = 4.0, 3.0, w - 4.0, h * 0.42
+    x1, y1, x2, y2 = 3.0, 2.0, w - 3.0, h * 0.40
     cr = r * 0.85
     return [
         x1 + cr, y1,
         x2 - cr, y1,
         x2, y1 + cr * 0.4,
         x2 - cr * 0.5, y2,
-        w / 2.0, y2 + 1.5,
+        w / 2.0, y2 + 1.0,
         x1 + cr * 0.5, y2,
         x1, y1 + cr * 0.4,
     ]
@@ -257,6 +276,11 @@ class FloatingBubble:
 
             root = tk.Tk()
             root.withdraw()
+            # Crisp text rendering at native DPI
+            try:
+                root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
+            except Exception:
+                pass
             self._tk = tk
             self._root = root
             self._tk_ident = threading.get_ident()
@@ -376,19 +400,19 @@ class FloatingBubble:
 
         # 1. Ambient Contact Shadow beneath the droplet
         canvas.create_polygon(
-            _rr_points(2, 6, BUBBLE_W - 2, BUBBLE_H, RADIUS),
+            _rr_points(1.5, 4, BUBBLE_W - 1.5, BUBBLE_H, RADIUS),
             smooth=True, fill=SHADOW_DEPTH, outline="",
         )
 
         # 2. Smoked Liquid Glass Body (Obsidian Dark Base)
         canvas.create_polygon(
-            _rr_points(2, 2, BUBBLE_W - 2, BUBBLE_H - 3, RADIUS),
+            _rr_points(1.5, 1.5, BUBBLE_W - 1.5, BUBBLE_H - 2, RADIUS),
             smooth=True, fill=GLASS_BASE, outline="",
         )
 
         # 3. Inner Liquid Volume / Refracted Depth Core
         canvas.create_polygon(
-            _rr_points(4, 4, BUBBLE_W - 4, BUBBLE_H - 5, RADIUS - 2),
+            _rr_points(3, 3, BUBBLE_W - 3, BUBBLE_H - 3.5, RADIUS - 1.5),
             smooth=True, fill=GLASS_INNER, outline="",
         )
 
@@ -400,45 +424,49 @@ class FloatingBubble:
 
         # 5. Specular Reflection Lines along the Upper Arc (Glass Sheen)
         canvas.create_line(
-            RADIUS * 0.7, 3.5, BUBBLE_W - RADIUS * 0.7, 3.5,
-            fill=SPECULAR_ARC, width=1.5, capstyle="round",
+            RADIUS * 0.7, 2.5, BUBBLE_W - RADIUS * 0.7, 2.5,
+            fill=SPECULAR_ARC, width=1.0, capstyle="round",
         )
         canvas.create_line(
-            cx_mid - 45, 3.5, cx_mid + 45, 3.5,
-            fill=SPECULAR_STREAK, width=1.2, capstyle="round",
+            cx_mid - 32, 2.5, cx_mid + 32, 2.5,
+            fill=SPECULAR_STREAK, width=0.8, capstyle="round",
         )
         canvas.create_line(
-            cx_mid - 18, 3.5, cx_mid + 18, 3.5,
-            fill=SPECULAR_APEX, width=1.0, capstyle="round",
+            cx_mid - 14, 2.5, cx_mid + 14, 2.5,
+            fill=SPECULAR_APEX, width=0.6, capstyle="round",
         )
 
         # 6. Bottom Caustic Refraction (Internal Lens Reflection)
         canvas.create_line(
-            RADIUS * 0.9, BUBBLE_H - 4.5, BUBBLE_W - RADIUS * 0.9, BUBBLE_H - 4.5,
-            fill=CAUSTIC_LIP, width=1.2, capstyle="round",
+            RADIUS * 0.9, BUBBLE_H - 3.5, BUBBLE_W - RADIUS * 0.9, BUBBLE_H - 3.5,
+            fill=CAUSTIC_LIP, width=0.8, capstyle="round",
         )
 
         # 7. Meniscus Surface Tension Rim (Crisp Glass Edge)
         canvas.create_polygon(
-            _rr_points(2, 2, BUBBLE_W - 2, BUBBLE_H - 3, RADIUS),
+            _rr_points(1.5, 1.5, BUBBLE_W - 1.5, BUBBLE_H - 2, RADIUS),
             smooth=True, fill="", outline=MENISCUS_BORDER, width=1,
         )
 
         # 8. Liquid Status Droplet Bead (Glow Aura + Pure White Bead + 3D Specular Highlight)
-        self._dot_halo = canvas.create_oval(19, cy - 8, 37, cy + 8, fill=AURA_LIVE, outline="")
-        self._dot = canvas.create_oval(23, cy - 5, 33, cy + 5, fill=LIVE_CORE, outline="")
-        self._dot_spec = canvas.create_oval(25, cy - 3.5, 27.5, cy - 1.0, fill="#FFFFFF", outline="")
+        dot_cx = 20.0
+        self._dot_halo = canvas.create_oval(
+            dot_cx - 7, cy - 7, dot_cx + 7, cy + 7, fill=AURA_LIVE, outline="")
+        self._dot = canvas.create_oval(
+            dot_cx - 4, cy - 4, dot_cx + 4, cy + 4, fill=LIVE_CORE, outline="")
+        self._dot_spec = canvas.create_oval(
+            dot_cx - 2.5, cy - 3, dot_cx - 0.5, cy - 1, fill="#FFFFFF", outline="")
 
         # 9. Modern High-Contrast Typography
         self._label = canvas.create_text(
-            48, cy - 0.5, anchor="w", fill=TEXT_LIVE,
-            font=(FONT_UI, 11, "bold"), text="",
+            36, cy, anchor="w", fill=TEXT_LIVE,
+            font=(FONT_UI, 9, "bold"), text="",
         )
 
-        # 10. 7 Voice-Reactive Fluid Wave Ripples (Droplet Equalizer)
+        # 10. Voice-Reactive Fluid Wave Ripples (Droplet Equalizer)
         self._bars = []
         total = (BAR_COUNT - 1) * BAR_GAP
-        base_x = BUBBLE_W - 24 - total
+        base_x = BUBBLE_W - 16 - total
         for i in range(BAR_COUNT):
             cx = base_x + i * BAR_GAP
             item = canvas.create_polygon(
@@ -668,33 +696,34 @@ class FloatingBubble:
         cy = BUBBLE_H / 2.0
 
         try:
+            dot_cx = 20.0
             # 1. Animate the Monochrome Liquid Droplet Bead
             if self._state == "transcribing":
                 # Silky liquid orbit
-                r = 2.6
-                ox = 28.0 + r * math.cos(self._phase * 1.8)
+                r = 2.0
+                ox = dot_cx + r * math.cos(self._phase * 1.8)
                 oy = cy + r * math.sin(self._phase * 1.8)
-                pr = 3.8
-                halo_r = pr + 3.2
+                pr = 3.2
+                halo_r = pr + 2.8
             elif self._state == "done":
                 # Pure white diamond confirmation
-                pr = 5.5
-                halo_r = 8.5
-                ox, oy = 28.0, cy
+                pr = 4.5
+                halo_r = 7.0
+                ox, oy = dot_cx, cy
             else:
                 # Listening: breathing pure white droplet + reactive halo
-                pr = 4.2 + 1.3 * (0.5 + 0.5 * math.sin(self._phase * 1.4)) + self._level * 1.5
-                halo_r = pr + 3.0 + self._level * 4.0
-                ox, oy = 28.0, cy
+                pr = 3.5 + 1.0 * (0.5 + 0.5 * math.sin(self._phase * 1.4)) + self._level * 1.2
+                halo_r = pr + 2.5 + self._level * 3.0
+                ox, oy = dot_cx, cy
 
             # Update Droplet + Halo + Specular Highlight Coords
             self._canvas.coords(self._dot_halo, ox - halo_r, oy - halo_r, ox + halo_r, oy + halo_r)
             self._canvas.coords(self._dot, ox - pr, oy - pr, ox + pr, oy + pr)
-            spec_r = pr * 0.30
+            spec_r = pr * 0.28
             self._canvas.coords(
                 self._dot_spec,
-                ox - pr * 0.55 - spec_r, oy - pr * 0.55 - spec_r,
-                ox - pr * 0.55 + spec_r, oy - pr * 0.55 + spec_r,
+                ox - pr * 0.50 - spec_r, oy - pr * 0.50 - spec_r,
+                ox - pr * 0.50 + spec_r, oy - pr * 0.50 + spec_r,
             )
 
             # 2. Animate Viscous Fluid Wave Ripples (Droplet Equalizer)

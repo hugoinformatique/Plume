@@ -5,6 +5,13 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.28
+
+- **Bulle compacte HiDPI (200×48 px, rendu natif croustillant).**
+  - **Correction rendu pixelisé** : activation de `SetProcessDpiAwareness(2)` (Per-Monitor DPI v2) avant toute fenêtre Tkinter. La bulle est désormais rendue à la résolution native de l'écran au lieu d'être upscalée en bitmap par Windows — fini l'effet « 144p ».
+  - **Taille réduite & compacte** : passage de 276×68 à **200×48 px** (rayon 21), 5 barres d'égaliseur au lieu de 7 (largeur 3.5 px, espacement 8 px), typographie réduite à 9pt, résultat plus discret et plus premium.
+  - **Crisp text scaling** : appel `tk("scaling", fpixels/72)` pour un rendu typographique net pixel-par-pixel sur écrans 125 %, 150 %, 200 %.
+
 ## v0.4.27
 
 - **Design Liquid Glass monochrome sobre (DA Noir & Blanc, 120 Hz).**
