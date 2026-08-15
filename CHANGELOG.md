@@ -5,6 +5,17 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.14
+
+- Found it (via devtools console, added in v0.4.13): `window.pywebview.api`
+  was missing `bench_record_start`/`bench_record_stop`/`run_benchmark`
+  entirely, even with a byte-for-byte fresh install (exe and `ui/index.html`
+  same timestamp). Root cause: WebView2 keeps a persistent browser profile
+  across app versions; if it ever cached the JS<->Python bridge bootstrap
+  from an older build, newly added `Api` methods don't show up no matter how
+  fresh the files on disk are. `webview.start(..., private_mode=True)` forces
+  a clean profile every launch.
+
 ## v0.4.13
 
 - Still no `benchmark-inapp.log` created after a clean reinstall + relaunch
