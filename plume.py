@@ -37,7 +37,7 @@ PROFILES = {
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 BUBBLE_W, BUBBLE_H = 252, 64
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.21"
+APP_VERSION = "0.4.22"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -81,7 +81,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.21' or '0.4.21'."""
+    """Return a comparable numeric version tuple from 'v0.4.22' or '0.4.22'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -124,23 +124,31 @@ def latest_release_info() -> dict:
     }
 
 
+def _debug_log(message: str) -> None:
+    """Minimal, always-on diagnostic trail for the handful of events that
+    have been hardest to reason about from user reports alone (hotkey mode,
+    settings writes, single-instance checks) -- independent of the
+    JS<->Python bridge and of whether devtools are enabled, so it's always
+    available as ground truth."""
+    try:
+        line = f"{datetime.now().strftime('%H:%M:%S')} — {message}\n"
+        with (config_dir() / "debug.log").open("a", encoding="utf-8") as fh:
+            fh.write(line)
+    except Exception:
+        pass
+
+
 def _parse_combo_keys(combo: str):
-    """'<ctrl>+<space>' -> {Key.ctrl, Key.space}, for hold-to-talk matching."""
+    """'<ctrl>+<space>' -> {Key.ctrl, Key.space}, for hold-to-talk matching.
+    Delegates to pynput's own HotKey.parse (the same parser GlobalHotKeys
+    uses internally) instead of a hand-rolled one, so combos behave
+    identically whether push-to-talk is on or off."""
     from pynput import keyboard
 
-    keys = set()
-    for part in combo.split("+"):
-        part = part.strip()
-        if not part:
-            continue
-        if part.startswith("<") and part.endswith(">"):
-            name = part[1:-1].lower()
-            key = getattr(keyboard.Key, name, None)
-            if key is not None:
-                keys.add(key)
-        elif len(part) == 1:
-            keys.add(keyboard.KeyCode.from_char(part.lower()))
-    return keys
+    try:
+        return set(keyboard.HotKey.parse(combo))
+    except Exception:
+        return set()
 
 
 class HoldToTalk:
@@ -495,8 +503,11 @@ class PlumeApp:
                     combo: lambda: threading.Thread(target=self.toggle, daemon=True).start()
                 })
             self.hotkeys.start()
+            mode = "push-to-talk" if self.config.get("push_to_talk") else "toggle"
+            _debug_log(f"hotkey installed: combo={combo} mode={mode}")
             self._set_status("Raccourci enregistré", "Prêt")
         except Exception as exc:  # noqa: BLE001
+            _debug_log(f"hotkey install FAILED: {exc}")
             self._set_status(f"Raccourci invalide : {exc}", "")
 
     # ---- tray ---------------------------------------------------------------
@@ -731,6 +742,7 @@ class Api:
         self.app._install_hotkey()
 
     def set_setting(self, key, value):
+        _debug_log(f"set_setting called: {key}={value!r}")
         if key == "profile":
             backend, device = PROFILES.get(value, PROFILES["fw-cpu"])
             self.app.config.data["backend"] = backend
@@ -779,9 +791,49 @@ class Api:
         return {"started": True}
 
 
+# Kept alive for the process lifetime -- a named mutex is released as soon
+# as its handle is closed/garbage-collected, which would defeat the point.
+_single_instance_mutex = None
+
+
+def _acquire_single_instance_lock() -> bool:
+    """True if this is the only running instance. False if another one
+    already holds the lock.
+
+    Without this, launching Plume.exe a second time (easy to do by
+    accident now that the app starts hidden in the tray with no window to
+    remind you it's already running) starts a second process with its own
+    independent copy of the config in memory. Both can write config.json,
+    and only one of them actually wins the global hotkey registration --
+    so settings changed in one instance can appear to "reset" (the other
+    instance re-saves its stale copy), and hotkey-dependent features like
+    push-to-talk can silently behave according to whichever instance
+    happens to own the hotkey, not the one the user is looking at.
+    """
+    if sys.platform != "win32":
+        return True
+    try:
+        import ctypes
+        ERROR_ALREADY_EXISTS = 183
+        handle = ctypes.windll.kernel32.CreateMutexW(None, False, "Global\\PlumeSingleInstance")
+        if not handle:
+            return True  # couldn't even check -- fail open rather than block launching
+        global _single_instance_mutex
+        _single_instance_mutex = handle
+        is_first = ctypes.windll.kernel32.GetLastError() != ERROR_ALREADY_EXISTS
+        _debug_log(f"single-instance check: {'first instance' if is_first else 'ANOTHER INSTANCE ALREADY RUNNING'}")
+        return is_first
+    except Exception as exc:  # noqa: BLE001
+        _debug_log(f"single-instance check errored, failing open: {exc}")
+        return True
+
+
 def main() -> int:
     if sys.platform != "win32":
         print("Plume is Windows-first; the web UI can still open elsewhere for checks.")
+    if not _acquire_single_instance_lock():
+        print("Plume is already running (see the system tray).")
+        return 0
     PlumeApp().run()
     return 0
 

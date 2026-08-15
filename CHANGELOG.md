@@ -5,6 +5,26 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.22
+
+- Root-caused the settings-not-persisting and push-to-talk-not-working
+  reports from v0.4.21: **no single-instance guard**. Now that the app
+  starts hidden in the tray (v0.4.19), it's easy to launch `Plume.exe` a
+  second time without noticing one is already running -- two processes
+  then each hold an independent in-memory copy of the config and can both
+  write `config.json`, and only one of them actually owns the global
+  hotkey registration, so settings changed in the instance you're looking
+  at can be silently overwritten or simply not the one responding to the
+  hotkey. Added a named-mutex single-instance lock: a second launch now
+  exits immediately instead of running alongside the first.
+- Reworked `_parse_combo_keys` to delegate to pynput's own
+  `HotKey.parse()` instead of a hand-rolled parser, removing a class of
+  possible combo-parsing mismatches for push-to-talk.
+- Added `%APPDATA%\Plume\debug.log`: a small always-on trail (hotkey mode
+  installed, every `set_setting` call, single-instance check result),
+  independent of the JS bridge and of debug mode, so the next report can
+  be diagnosed from evidence instead of another guess.
+
 ## v0.4.21
 
 - Repo consolidated onto a single branch: `main` now points at what was
@@ -40,7 +60,7 @@ process.
 - Fix the listening bubble showing for a single frame then disappearing:
   the global hotkey could fire `toggle()` twice for one press (OS key-repeat
   on the space bar), starting and immediately stopping the recording.
-  Debounced. (Turned out not to be the whole story — see v0.4.20/v0.4.21.)
+  Debounced. (Turned out not to be the whole story — see v0.4.20/v0.4.22.)
 - Start minimized to the tray instead of opening the main window every
   launch; use the tray icon (double-click, or "Afficher Plume") to open it.
 - Fix automatic updates failing with "impossible de fermer l'application":
