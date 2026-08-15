@@ -5,16 +5,27 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.15
+
+- `private_mode=True` (v0.4.14) made no difference — `window.pywebview.api`
+  is still completely empty (`Object.keys(...)` -> `[]`), not just missing
+  the benchmark methods. Reverted it (no evidence it helped, only added
+  risk). This is now a bigger issue than the benchmark tab: the JS<->Python
+  bridge appears non-functional for *every* Api method in this build.
+  Root cause still open — see `docs/BENCH_BRIDGE_DEBUG.md` for what's ruled
+  out and the next diagnostic step (run `python plume.py` from source to
+  isolate whether this is a PyInstaller packaging issue or a pywebview/
+  WebView2 environment issue).
+
 ## v0.4.14
 
 - Found it (via devtools console, added in v0.4.13): `window.pywebview.api`
   was missing `bench_record_start`/`bench_record_stop`/`run_benchmark`
   entirely, even with a byte-for-byte fresh install (exe and `ui/index.html`
-  same timestamp). Root cause: WebView2 keeps a persistent browser profile
-  across app versions; if it ever cached the JS<->Python bridge bootstrap
-  from an older build, newly added `Api` methods don't show up no matter how
-  fresh the files on disk are. `webview.start(..., private_mode=True)` forces
-  a clean profile every launch.
+  same timestamp). Root cause suspected at the time: WebView2 keeps a
+  persistent browser profile across app versions. `webview.start(...,
+  private_mode=True)` forced a clean profile every launch — turned out not
+  to fix it (see v0.4.15).
 
 ## v0.4.13
 
