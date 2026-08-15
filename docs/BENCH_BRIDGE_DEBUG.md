@@ -1,11 +1,24 @@
 # Debug notes: empty `window.pywebview.api` in the packaged app
 
-Status: **unresolved**. Logged here so this isn't re-investigated from zero.
-Part of the temporary [in-app benchmark mode](BENCHMARKING.md) work — delete
-this file along with the rest of `BENCHMARK MODE (temporary)` markers once
-that's removed, unless the underlying bridge issue turns out to be bigger
-than the benchmark tab (see "Why this might matter beyond the benchmark tab"
-below).
+Status: **unresolved, deprioritized**. The in-app Bench tab is parked
+(don't spend more time on it) in favor of the CLI `benchmark.py`, which
+doesn't touch this bridge at all — see [BENCHMARKING.md](BENCHMARKING.md).
+Logged here so this isn't re-investigated from zero if it comes up again.
+Delete this file along with the rest of `BENCHMARK MODE (temporary)` markers
+when that's removed, unless the bridge issue turns out to matter for the
+real product (see "Why this might matter beyond the benchmark tab" below).
+
+`debug=True` (enabled to get the devtools console reading below) was
+reverted back to `False` after it looked like the likely cause of the
+floating listening bubble (`ui/bubble.html`, transparent + frameless window)
+no longer showing. If investigating this further, that's a variable to
+control for.
+
+The startup auto-update check (`PlumeApp._auto_update_check`) does **not**
+depend on this bridge — it's triggered directly from Python on launch, not
+from a UI click — so it should keep working even if the bridge issue
+persists. The manual "Vérifier" button in Réglages does go through the
+bridge (`Api.check_update`) and may not, until this is resolved.
 
 ## Symptom
 

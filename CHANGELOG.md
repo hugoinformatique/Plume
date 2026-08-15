@@ -5,6 +5,26 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.16
+
+- Startup update check now installs automatically instead of only showing a
+  banner: if a newer GitHub release is found, Plume downloads and silently
+  installs it, then relaunches itself. This path runs from Python directly
+  (not through the JS bridge), so it works independently of the
+  `window.pywebview.api` issue below.
+- Fixed the silent-update installer never relaunching Plume afterward
+  (Inno Setup skips its postinstall auto-launch in `/SILENT` mode) —
+  Plume now waits for the installer and relaunches itself explicitly.
+- `debug=True` (added in v0.4.13 to inspect the JS bridge) reverted to
+  `False`: suspected cause of the floating listening bubble no longer
+  showing (transparent/frameless window + devtools mode don't mix well).
+- Recordings are deleted right after transcription instead of accumulating
+  in `recordings/` forever; a startup sweep also clears anything left over
+  from a crashed session older than 24h.
+- Parked the in-app Bench tab investigation (deprioritized, see
+  `docs/BENCH_BRIDGE_DEBUG.md`) in favor of the CLI `benchmark.py`, which
+  doesn't depend on the JS bridge at all.
+
 ## v0.4.15
 
 - `private_mode=True` (v0.4.14) made no difference — `window.pywebview.api`
@@ -25,7 +45,7 @@ process.
   same timestamp). Root cause suspected at the time: WebView2 keeps a
   persistent browser profile across app versions. `webview.start(...,
   private_mode=True)` forced a clean profile every launch — turned out not
-  to fix it (see v0.4.15).
+  to fix it (see v0.4.16).
 
 ## v0.4.13
 

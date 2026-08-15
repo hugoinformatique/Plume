@@ -37,7 +37,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.15"
+APP_VERSION = "0.4.16"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -98,7 +98,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.15' or '0.4.15'."""
+    """Return a comparable numeric version tuple from 'v0.4.16' or '0.4.16'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -310,8 +310,33 @@ class PlumeApp:
         except Exception as exc:  # noqa: BLE001
             self._set_status(f"Erreur : {exc}", "Erreur")
         finally:
+            # The wav is only ever needed for this one transcription; the
+            # text (not the audio) is what's kept in history. Delete it
+            # right away instead of letting recordings/ grow unbounded.
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                pass
             time.sleep(0.5)
             self._hide_bubble()
+
+    def _cleanup_old_recordings(self, max_age_hours: float = 24.0) -> None:
+        """Best-effort sweep for wav files that outlived their transcription
+        (e.g. the app crashed mid-run before the per-file cleanup above ran).
+        Runs at startup so leftover recordings never silently accumulate."""
+        cutoff = time.time() - max_age_hours * 3600
+        for folder in (self.recordings_dir, config_dir() / "bench-tmp"):
+            try:
+                if not folder.exists():
+                    continue
+                for f in folder.glob("*.wav"):
+                    try:
+                        if f.stat().st_mtime < cutoff:
+                            f.unlink()
+                    except OSError:
+                        pass
+            except Exception:
+                pass
 
     def _add_history(self, text: str) -> None:
         item = {
@@ -580,6 +605,14 @@ class PlumeApp:
             pass
 
     # ---- updates -----------------------------------------------------------
+    def _auto_update_check(self) -> None:
+        """Startup check that doesn't just notify: if a newer version is on
+        GitHub Releases, download and install it right away, no click
+        needed."""
+        info = self.check_for_update(notify=True)
+        if info.get("available"):
+            self._download_and_launch_update()
+
     def check_for_update(self, notify: bool = True) -> dict:
         try:
             info = latest_release_info()
@@ -626,9 +659,21 @@ class PlumeApp:
                         if chunk:
                             fh.write(chunk)
             part.replace(dest)
-            self._set_update_ui({**info, "installing": True, "message": "Lancement de l'installeur…"})
-            subprocess.Popen([str(dest), "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS"])
-            time.sleep(0.5)
+            self._set_update_ui({**info, "installing": True, "message": "Installation en cours…"})
+            proc = subprocess.Popen([str(dest), "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS"])
+            # Inno Setup's postinstall [Run] entry has `skipifsilent`, so it
+            # won't relaunch Plume for us when installed with /SILENT --
+            # wait for the installer to finish and do it ourselves, or the
+            # app just vanishes after an "automatic" update.
+            try:
+                proc.wait(timeout=300)
+            except subprocess.TimeoutExpired:
+                pass
+            if getattr(sys, "frozen", False):
+                try:
+                    subprocess.Popen([sys.executable])
+                except Exception:
+                    pass
             self.quit()
         except Exception as exc:  # noqa: BLE001
             self._set_update_ui({**info, "installing": False, "message": f"Mise à jour impossible : {exc}"})
@@ -639,7 +684,8 @@ class PlumeApp:
         self._install_hotkey()
         set_autostart(bool(self.config.get("autostart")))
         threading.Thread(target=self._preload, daemon=True).start()
-        threading.Thread(target=self.check_for_update, daemon=True).start()
+        threading.Thread(target=self._cleanup_old_recordings, daemon=True).start()
+        threading.Thread(target=self._auto_update_check, daemon=True).start()
 
     def quit(self) -> None:
         try:
@@ -671,12 +717,12 @@ class PlumeApp:
             width=252, height=64, resizable=False, frameless=True,
             on_top=True, transparent=True, background_color="#111318", hidden=True, focus=False,
         )
-        # BENCHMARK MODE (temporary, remove after testing): debug=True
-        # enables right-click "Inspect" so JS errors are visible.
-        # (private_mode=True was tried and reverted -- window.pywebview.api
-        # came back completely empty with it on, worse than before, no
-        # evidence it helped. Root cause is still open, see docs/BENCH_BRIDGE_DEBUG.md.)
-        webview.start(self._on_started, debug=True)
+        # BENCHMARK MODE (temporary, remove after testing): debug was True
+        # to get devtools access for the bridge investigation
+        # (docs/BENCH_BRIDGE_DEBUG.md) -- reverted to False since it's the
+        # prime suspect for the floating bubble window (transparent,
+        # frameless) no longer showing.
+        webview.start(self._on_started, debug=False)
 
 
 def _create_window(title, url, **kwargs):
