@@ -5,6 +5,19 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.12
+
+- Root-caused v0.4.11's "nothing happens, 0% CPU/network" report: the log
+  file never existed, meaning `run_benchmark()` was returning immediately
+  because the reference clip wasn't found — the record-clip step was
+  failing silently with no error surfaced. `bench_record_start`/`_stop` now
+  log every step (mic open, capture stop, file save) and report real errors
+  instead of a generic "too short", so a microphone failure is visible
+  instead of indistinguishable from a hang.
+- The log file is append-only across the whole session now (previously the
+  benchmark run truncated it, erasing the record-step history that would
+  have explained this).
+
 ## v0.4.11
 
 - Benchmark log is now also written to `%APPDATA%\Plume\benchmark-inapp.log`

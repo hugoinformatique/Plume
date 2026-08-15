@@ -37,7 +37,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.11"
+APP_VERSION = "0.4.12"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -98,7 +98,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.11' or '0.4.11'."""
+    """Return a comparable numeric version tuple from 'v0.4.12' or '0.4.12'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -348,25 +348,51 @@ class PlumeApp:
 
     # ==== BENCHMARK MODE (temporary, remove after testing) ===================
     def bench_record_start(self) -> None:
-        self.bench_recorder.start()
+        self._bench_log("Clic 'Enregistrer' — ouverture du micro…")
+        try:
+            self.bench_recorder.start()
+            self._bench_log("Micro ouvert, capture en cours.")
+        except Exception as exc:  # noqa: BLE001
+            # sounddevice/PortAudio errors (no input device, permission
+            # denied by Windows privacy settings, device in use...) used to
+            # propagate silently past the JS bridge since this method has no
+            # return value the click handler awaits. Log it so it's visible
+            # even though the UI can't show it for this specific call.
+            self._bench_log(f"ERREUR à l'ouverture du micro : {exc}")
 
     def bench_record_stop(self) -> dict:
-        path = self.bench_recorder.stop_to_wav(config_dir() / "bench-tmp")
+        self._bench_log("Clic 'Arrêter' — fin de capture…")
+        if not self.bench_recorder.is_recording:
+            msg = "Le micro n'a jamais démarré (voir le log ci-dessus / benchmark-inapp.log)."
+            self._bench_log(msg)
+            return {"ok": False, "message": msg}
+        try:
+            path = self.bench_recorder.stop_to_wav(config_dir() / "bench-tmp")
+        except Exception as exc:  # noqa: BLE001
+            self._bench_log(f"ERREUR à l'arrêt du micro : {exc}")
+            return {"ok": False, "message": str(exc)}
         if path is None:
-            return {"ok": False, "message": "Trop court (< 0.25s)"}
+            msg = "Enregistrement trop court (< 0.25s) — reclique et parle un peu plus longtemps."
+            self._bench_log(msg)
+            return {"ok": False, "message": msg}
         try:
             if BENCH_CLIP_PATH.exists():
                 BENCH_CLIP_PATH.unlink()
             path.replace(BENCH_CLIP_PATH)
         except Exception as exc:  # noqa: BLE001
+            self._bench_log(f"ERREUR en sauvegardant l'extrait : {exc}")
             return {"ok": False, "message": str(exc)}
+        self._bench_log(f"Extrait sauvegardé : {BENCH_CLIP_PATH}")
         return {"ok": True, "path": str(BENCH_CLIP_PATH)}
 
     def run_benchmark(self) -> None:
+        self._bench_log("Clic 'Lancer le benchmark complet'.")
         if self._bench_running:
+            self._bench_log("Un run est déjà en cours, clic ignoré.")
             return
         if not BENCH_CLIP_PATH.exists():
-            msg = "Enregistre un extrait test d'abord."
+            msg = "Enregistre un extrait test d'abord (aucun fichier trouvé)."
+            self._bench_log(msg)
             self._js(self.window, f"window.plumeBench && plumeBench.setStatus({json.dumps(msg)})")
             return
         self._bench_running = True
@@ -413,10 +439,8 @@ class PlumeApp:
         # always resets _bench_running and is reported in the log, instead of
         # dying silently in the background thread and leaving the UI stuck
         # with no feedback and the Lancer button permanently disabled.
-        try:
-            (config_dir() / "benchmark-inapp.log").write_text("", encoding="utf-8")
-        except Exception:
-            pass
+        # (The log file is append-only across the session on purpose — it
+        # keeps the record-clip steps that happened right before this run.)
         try:
             self._run_benchmark_matrix_inner()
         except Exception as exc:  # noqa: BLE001
