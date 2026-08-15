@@ -37,7 +37,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.10"
+APP_VERSION = "0.4.11"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -98,7 +98,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.10' or '0.4.10'."""
+    """Return a comparable numeric version tuple from 'v0.4.11' or '0.4.11'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -388,13 +388,35 @@ class PlumeApp:
 
     def _bench_log(self, message: str) -> None:
         line = f"{datetime.now().strftime('%H:%M:%S')} — {message}"
+        # Push to the UI (best-effort — evaluate_js can silently no-op if the
+        # page/bridge isn't in a state to receive it) AND write to a plain
+        # log file, so progress is visible even if the JS side never updates.
         self._js(self.window, f"window.plumeBench && plumeBench.log({json.dumps(line)})")
+        try:
+            with (config_dir() / "benchmark-inapp.log").open("a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _fw_model_cached(model_name: str) -> bool:
+        """Best-effort check of the Hugging Face cache so we can warn before
+        a combo that's about to try downloading a model from the internet."""
+        try:
+            cache_root = Path.home() / ".cache" / "huggingface" / "hub"
+            return (cache_root / f"models--Systran--faster-whisper-{model_name}").exists()
+        except Exception:
+            return False
 
     def _run_benchmark_matrix(self) -> None:
         # Everything is wrapped so a crash anywhere (e.g. a bad model path)
         # always resets _bench_running and is reported in the log, instead of
         # dying silently in the background thread and leaving the UI stuck
         # with no feedback and the Lancer button permanently disabled.
+        try:
+            (config_dir() / "benchmark-inapp.log").write_text("", encoding="utf-8")
+        except Exception:
+            pass
         try:
             self._run_benchmark_matrix_inner()
         except Exception as exc:  # noqa: BLE001
@@ -404,6 +426,12 @@ class PlumeApp:
             self._bench_running = False
 
     def _run_benchmark_matrix_inner(self) -> None:
+        # Without this, a stalled network connection (e.g. a proxy silently
+        # dropping the request) can leave huggingface_hub's download hanging
+        # for a very long time with zero feedback. This bounds it so a dead
+        # connection fails fast and the sweep moves on to the next combo.
+        os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "20")
+
         rows = []
         language = self.config.get("language")
         language = None if str(language).lower() == "auto" else language
@@ -425,13 +453,15 @@ class PlumeApp:
 
         total = len(combos)
         self._bench_log(f"Démarrage : {total} combinaisons à tester sur {BENCH_CLIP_PATH.name}.")
+        self._bench_log(f"Journal aussi écrit dans : {config_dir() / 'benchmark-inapp.log'}")
         for i, (backend, device, model, compute) in enumerate(combos, 1):
             label = f"{backend}/{device}/{model}/{compute}"
             self._js(self.window, f"window.plumeBench && plumeBench.setStatus({json.dumps(f'({i}/{total}) {label}')})")
-            self._bench_log(
-                f"({i}/{total}) {label} — chargement du modèle… "
-                "(un modèle jamais utilisé peut télécharger plusieurs centaines de Mo, ça peut prendre du temps)"
-            )
+            if backend == "faster-whisper":
+                cache_note = "en cache local" if self._fw_model_cached(model) else "PAS en cache — va télécharger depuis internet"
+                self._bench_log(f"({i}/{total}) {label} — chargement du modèle ({cache_note})…")
+            else:
+                self._bench_log(f"({i}/{total}) {label} — chargement du modèle…")
             try:
                 started_load = time.perf_counter()
                 engine = create_backend(backend, model, device, compute, language)

@@ -5,6 +5,16 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.11
+
+- Benchmark log is now also written to `%APPDATA%\Plume\benchmark-inapp.log`
+  on disk, live, independently of the in-app UI panel — so progress is
+  visible even if the JS bridge update doesn't render for some reason.
+- Set `HF_HUB_DOWNLOAD_TIMEOUT` before a sweep so a stalled connection while
+  downloading an uncached model fails fast instead of hanging indefinitely;
+  log whether each faster-whisper model is already cached locally before
+  attempting to load it, so a pending download is obvious upfront.
+
 ## v0.4.10
 
 - Fix the in-app benchmark sweep hanging with no feedback and no way to
