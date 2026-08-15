@@ -5,12 +5,21 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.20
+
+- Bubble fix in v0.4.19 (debounce) didn't resolve it — still showed once
+  then never again reliably. Switched from a persistent hidden window
+  toggled with `.show()`/`.hide()` to creating a fresh bubble window per
+  dictation and destroying it right after. A long-lived hidden/shown
+  transparent+frameless WebView2 window proved unreliable across repeated
+  cycles on real hardware; a short-lived one avoids that state entirely.
+
 ## v0.4.19
 
 - Fix the listening bubble showing for a single frame then disappearing:
   the global hotkey could fire `toggle()` twice for one press (OS key-repeat
   on the space bar), starting and immediately stopping the recording.
-  Debounced.
+  Debounced. (Turned out not to be the whole story — see v0.4.20.)
 - Start minimized to the tray instead of opening the main window every
   launch; use the tray icon (double-click, or "Afficher Plume") to open it.
 - Fix automatic updates failing with "impossible de fermer l'application":

@@ -35,8 +35,9 @@ PROFILES = {
     "ov-cpu": ("openvino", "CPU"),
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
+BUBBLE_W, BUBBLE_H = 252, 64
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.19"
+APP_VERSION = "0.4.20"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -80,7 +81,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.19' or '0.4.19'."""
+    """Return a comparable numeric version tuple from 'v0.4.20' or '0.4.20'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -199,35 +200,40 @@ class PlumeApp:
         self._js(self.window, f"window.plume && plume.setUpdate({json.dumps(info)})")
 
     # ---- bubble window ------------------------------------------------------
-    def _place_bubble(self) -> None:
-        if self.bubble is None:
-            return
+    def _bubble_geometry(self) -> tuple[int, int]:
         sw, sh = screen_size()
-        w, h = 252, 64
-        x = (sw - w) // 2
-        y = 56 if self.config.get("bubble_position") == "top" else sh - h - 96
-        try:
-            self.bubble.move(x, y)
-        except Exception:
-            pass
+        x = (sw - BUBBLE_W) // 2
+        y = 56 if self.config.get("bubble_position") == "top" else sh - BUBBLE_H - 96
+        return x, y
 
     def _show_bubble(self, listening: bool) -> None:
-        if self.bubble is None:
-            return
-        self._place_bubble()
+        # A persistent hidden window toggled with .show()/.hide() proved
+        # unreliable on real hardware (appears once, then never reliably
+        # again). Create a fresh window per dictation and destroy it
+        # afterward instead -- more instances, but each one is simple and
+        # short-lived rather than accumulating state across a whole session.
+        self._hide_bubble()
+        x, y = self._bubble_geometry()
         try:
-            self.bubble.show()
+            self.bubble = _create_window(
+                "PlumeBubble", ui_file("bubble.html"),
+                width=BUBBLE_W, height=BUBBLE_H, resizable=False, frameless=True,
+                on_top=True, transparent=True, background_color="#111318",
+                focus=False, x=x, y=y,
+            )
         except Exception:
-            pass
+            self.bubble = None
+            return
         self._bubble_state("listening" if listening else "transcribing",
                            "À l'écoute…" if listening else "Transcription…")
 
     def _hide_bubble(self) -> None:
         if self.bubble is not None:
             try:
-                self.bubble.hide()
+                self.bubble.destroy()
             except Exception:
                 pass
+            self.bubble = None
 
     def _level_loop(self) -> None:
         while not self._level_stop.is_set() and self.recording:
@@ -544,11 +550,9 @@ class PlumeApp:
             width=420, height=700, resizable=True, frameless=False,
             easy_drag=False, min_size=(400, 620), hidden=True,
         )
-        self.bubble = _create_window(
-            "PlumeBubble", ui_file("bubble.html"),
-            width=252, height=64, resizable=False, frameless=True,
-            on_top=True, transparent=True, background_color="#111318", hidden=True, focus=False,
-        )
+        # The bubble window is created on demand per dictation (see
+        # _show_bubble) instead of once here, so self.bubble starts as None
+        # (already set in __init__).
         webview.start(self._on_started, debug=False)
 
 
