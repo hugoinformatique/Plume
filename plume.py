@@ -25,6 +25,7 @@ import webview
 from sttlocal import DictationEngine, Recorder, clean_transcript, copy_text, paste_text
 from config import Config, config_dir, hotkey_to_pynput
 from vocabulary import Vocabulary
+from backends import create_backend  # BENCHMARK MODE (temporary, remove after testing)
 
 
 # UI 'profile' value -> (backend, device)
@@ -39,6 +40,23 @@ DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
 APP_VERSION = "0.4.8"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
+
+
+# ==== BENCHMARK MODE (temporary, remove after testing) =======================
+BENCH_CLIP_PATH = config_dir() / "benchmark-clip.wav"
+BENCH_FW_MODELS = ["base", "small", "medium", "turbo"]
+BENCH_FW_COMPUTE_TYPES = ["int8", "int8_float16", "float32"]
+BENCH_OV_DEVICES = ["NPU", "GPU", "CPU"]
+
+
+def discover_openvino_models() -> list[str]:
+    """Any subfolder under models/openvino/ is assumed to be a converted
+    OpenVINO IR model (see README "OpenVINO / NPU" / optimum-cli export)."""
+    base = Path("models") / "openvino"
+    if not base.exists():
+        return []
+    return [str(p) for p in sorted(base.iterdir()) if p.is_dir()]
+# ==== /BENCHMARK MODE ==========================================================
 
 
 def resource_dir() -> str:
@@ -142,6 +160,9 @@ class PlumeApp:
         self.metrics_path = config_dir() / "metrics.csv"
         self.recordings_dir = config_dir() / "recordings"
         self._update_info: dict | None = None
+        # BENCHMARK MODE (temporary, remove after testing)
+        self.bench_recorder = Recorder()
+        self._bench_running = False
 
     # ---- engine (kept warm) -------------------------------------------------
     def _engine_params(self) -> tuple:
@@ -324,6 +345,93 @@ class PlumeApp:
                             len(text), len(self.vocab.terms())])
         except Exception:
             pass
+
+    # ==== BENCHMARK MODE (temporary, remove after testing) ===================
+    def bench_record_start(self) -> None:
+        self.bench_recorder.start()
+
+    def bench_record_stop(self) -> dict:
+        path = self.bench_recorder.stop_to_wav(config_dir() / "bench-tmp")
+        if path is None:
+            return {"ok": False, "message": "Trop court (< 0.25s)"}
+        try:
+            if BENCH_CLIP_PATH.exists():
+                BENCH_CLIP_PATH.unlink()
+            path.replace(BENCH_CLIP_PATH)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "message": str(exc)}
+        return {"ok": True, "path": str(BENCH_CLIP_PATH)}
+
+    def run_benchmark(self) -> None:
+        if self._bench_running:
+            return
+        if not BENCH_CLIP_PATH.exists():
+            msg = "Enregistre un extrait test d'abord."
+            self._js(self.window, f"window.plumeBench && plumeBench.setStatus({json.dumps(msg)})")
+            return
+        self._bench_running = True
+        threading.Thread(target=self._run_benchmark_matrix, daemon=True).start()
+
+    def _bench_emit_row(self, backend, device, model, compute, result=None, error=None) -> dict:
+        row = {"backend": backend, "device": device, "model": model, "compute": compute}
+        if error is not None:
+            row.update({"seconds": "", "rtf": "", "text": f"ERREUR: {error}"})
+        else:
+            rtf = result.rtf
+            row.update({
+                "seconds": f"{result.elapsed:.2f}",
+                "rtf": f"{rtf:.2f}" if rtf is not None else "",
+                "text": result.text,
+            })
+        self._js(self.window, f"window.plumeBench && plumeBench.addRow({json.dumps(row)})")
+        return row
+
+    def _run_benchmark_matrix(self) -> None:
+        rows = []
+        language = self.config.get("language")
+        language = None if str(language).lower() == "auto" else language
+
+        combos = [
+            ("faster-whisper", "cpu", model, compute)
+            for model in BENCH_FW_MODELS
+            for compute in BENCH_FW_COMPUTE_TYPES
+        ]
+        ov_models = discover_openvino_models()
+        combos += [
+            ("openvino", device, model, "int8")
+            for model in ov_models
+            for device in BENCH_OV_DEVICES
+        ]
+        if not ov_models:
+            note = "Aucun modèle OpenVINO trouvé sous models/openvino/ — seul faster-whisper est testé."
+            self._js(self.window, f"window.plumeBench && plumeBench.note({json.dumps(note)})")
+
+        total = len(combos)
+        for i, (backend, device, model, compute) in enumerate(combos, 1):
+            label = f"{backend}/{device}/{model}/{compute}"
+            self._js(self.window, f"window.plumeBench && plumeBench.setStatus({json.dumps(f'({i}/{total}) {label}')})")
+            try:
+                engine = create_backend(backend, model, device, compute, language)
+                engine.load()
+                result = engine.transcribe(BENCH_CLIP_PATH)
+                row = self._bench_emit_row(backend, device, model, compute, result=result)
+            except Exception as exc:  # noqa: BLE001
+                row = self._bench_emit_row(backend, device, model, compute, error=str(exc))
+            rows.append(row)
+
+        out_path = None
+        try:
+            out_path = config_dir() / "benchmark-inapp.csv"
+            with out_path.open("w", newline="", encoding="utf-8") as fh:
+                w = csv.DictWriter(fh, fieldnames=["backend", "device", "model", "compute", "seconds", "rtf", "text"])
+                w.writeheader()
+                w.writerows(rows)
+        except Exception:
+            out_path = None
+
+        self._bench_running = False
+        self._js(self.window, f"window.plumeBench && plumeBench.setDone({json.dumps(str(out_path) if out_path else '')})")
+    # ==== /BENCHMARK MODE ======================================================
 
     # ---- hotkey -------------------------------------------------------------
     def _install_hotkey(self) -> None:
@@ -595,6 +703,17 @@ class Api:
     def install_update(self):
         threading.Thread(target=self.app._download_and_launch_update, daemon=True).start()
         return {"started": True}
+
+    # ==== BENCHMARK MODE (temporary, remove after testing) ===================
+    def bench_record_start(self):
+        self.app.bench_record_start()
+
+    def bench_record_stop(self):
+        return self.app.bench_record_stop()
+
+    def run_benchmark(self):
+        self.app.run_benchmark()
+    # ==== /BENCHMARK MODE ======================================================
 
 
 def main() -> int:
