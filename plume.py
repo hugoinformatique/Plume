@@ -36,7 +36,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.18"
+APP_VERSION = "0.4.19"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -80,7 +80,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.18' or '0.4.18'."""
+    """Return a comparable numeric version tuple from 'v0.4.19' or '0.4.19'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -139,6 +139,7 @@ class PlumeApp:
         self.recording = False
         self.worker: threading.Thread | None = None
         self._level_stop = threading.Event()
+        self._last_toggle_at = 0.0
         self.metrics_path = config_dir() / "metrics.csv"
         self.recordings_dir = config_dir() / "recordings"
         self._update_info: dict | None = None
@@ -236,6 +237,15 @@ class PlumeApp:
 
     # ---- recording ----------------------------------------------------------
     def toggle(self) -> None:
+        # The global hotkey (often Ctrl+Space) can fire twice for one press
+        # -- e.g. OS key-repeat on the space bar if it's held a fraction too
+        # long -- which used to start and immediately stop the recording,
+        # showing the listening bubble for a single frame before hiding it
+        # again. Debounce it.
+        now = time.perf_counter()
+        if now - self._last_toggle_at < 0.6:
+            return
+        self._last_toggle_at = now
         if self.worker and self.worker.is_alive():
             return
         if self.recording:
@@ -469,20 +479,33 @@ class PlumeApp:
                             fh.write(chunk)
             part.replace(dest)
             self._set_update_ui({**info, "installing": True, "message": "Installation en cours…"})
-            proc = subprocess.Popen([str(dest), "/SILENT", "/NORESTART", "/CLOSEAPPLICATIONS"])
+            # No /CLOSEAPPLICATIONS: that flag makes the installer ask
+            # Windows' Restart Manager to close *us* -- but we'd be sitting
+            # in proc.wait() below, not processing that request, so the
+            # installer's close attempt fails ("impossible de fermer
+            # l'application") and the update never completes. We close
+            # ourselves instead, immediately, which unlocks our own exe for
+            # the installer to overwrite.
+            proc = subprocess.Popen([str(dest), "/SILENT", "/NORESTART"])
             # Inno Setup's postinstall [Run] entry has `skipifsilent`, so it
-            # won't relaunch Plume for us when installed with /SILENT --
-            # wait for the installer to finish and do it ourselves, or the
-            # app just vanishes after an "automatic" update.
-            try:
-                proc.wait(timeout=300)
-            except subprocess.TimeoutExpired:
-                pass
+            # won't relaunch Plume for us when installed with /SILENT.
+            # We're about to quit, so we can't wait for the installer
+            # ourselves either -- hand that off to a detached watcher
+            # process that outlives us.
             if getattr(sys, "frozen", False):
                 try:
-                    subprocess.Popen([sys.executable])
+                    watcher = (
+                        f"Wait-Process -Id {proc.pid} -ErrorAction SilentlyContinue; "
+                        f"Start-Sleep -Seconds 1; "
+                        f"Start-Process -FilePath '{sys.executable}'"
+                    )
+                    subprocess.Popen(
+                        ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", watcher],
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
                 except Exception:
                     pass
+            time.sleep(0.3)
             self.quit()
         except Exception as exc:  # noqa: BLE001
             self._set_update_ui({**info, "installing": False, "message": f"Mise à jour impossible : {exc}"})
@@ -519,7 +542,7 @@ class PlumeApp:
         self.window = _create_window(
             "Plume", ui_file("index.html"), js_api=api,
             width=420, height=700, resizable=True, frameless=False,
-            easy_drag=False, min_size=(400, 620),
+            easy_drag=False, min_size=(400, 620), hidden=True,
         )
         self.bubble = _create_window(
             "PlumeBubble", ui_file("bubble.html"),

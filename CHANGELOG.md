@@ -5,6 +5,21 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.19
+
+- Fix the listening bubble showing for a single frame then disappearing:
+  the global hotkey could fire `toggle()` twice for one press (OS key-repeat
+  on the space bar), starting and immediately stopping the recording.
+  Debounced.
+- Start minimized to the tray instead of opening the main window every
+  launch; use the tray icon (double-click, or "Afficher Plume") to open it.
+- Fix automatic updates failing with "impossible de fermer l'application":
+  the installer was launched with `/CLOSEAPPLICATIONS`, which asks Windows
+  to close Plume -- while Plume was itself blocked waiting for the
+  installer to finish, a deadlock. Plume now quits immediately after
+  launching the installer and hands off waiting/relaunching to a detached
+  helper process.
+
 ## v0.4.18
 
 - Removed the in-app "Bench" tab entirely (all `BENCHMARK MODE (temporary,
