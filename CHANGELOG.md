@@ -5,14 +5,21 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.10
+
+- Fix the in-app benchmark sweep hanging with no feedback and no way to
+  relaunch if it hit an unexpected error; add a scrolling, timestamped
+  progress log so a slow (e.g. first-time model download) run is visibly
+  different from a stuck one.
+- Add `docs/ARCHITECTURE.md`, `docs/CONFIGURATION.md`, `docs/BENCHMARKING.md`,
+  `CONTRIBUTING.md`, `CHANGELOG.md`; README now indexes all documentation.
+
 ## v0.4.9
 
 - Add a temporary in-app "Bench" tab: record one reference clip, run it
   through every backend/device/model/compute combination, see results and a
   live log in the app, export to CSV. Marked for removal once no longer
   needed.
-- Fix the benchmark sweep hanging with no feedback and no way to relaunch if
-  it hit an unexpected error; add a scrolling progress log.
 
 ## v0.4.8
 
