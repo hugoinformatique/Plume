@@ -5,6 +5,82 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.23
+
+Audit des bugs restants de v0.4.22 (raccourci non pris en compte,
+push-to-talk inopérant, aucun bip, bouton « vérifier les mises à jour »
+sans effet, réglages non persistés). Tous ces symptômes ont un point
+commun : **ce sont exactement les actions déclenchées depuis l'interface**,
+alors que tout ce qui part de Python au démarrage (mise à jour auto,
+raccourci par défaut) fonctionne. Le pont JS→Python avalait les erreurs à
+trois endroits, ce qui rendait un échec indiscernable d'un succès.
+
+- **Interface (`ui/index.html`) : fin des appels silencieusement perdus.**
+  Le `Proxy` d'API résolvait `Promise.resolve()` quand
+  `window.pywebview.api` n'était pas encore injecté — tout clic émis avant
+  l'injection était purement perdu. Les appels sont désormais mis en
+  attente derrière une promesse `bridgeReady`, résolue par l'évènement
+  `pywebviewready` **ou** par un sondage (l'évènement pouvait être émis
+  avant que le script n'y souscrive, auquel cas l'app restait sur son état
+  de démonstration sans jamais lire la vraie config). Après 10 s sans
+  pont : message d'erreur visible au lieu du silence.
+- **Interface : confirmation au lieu d'optimisme.** Les bascules, les
+  sélecteurs et la capture de raccourci n'affichent le nouvel état que si
+  Python confirme ; sinon retour à l'état précédent et affichage de
+  l'erreur. C'est ce qui produisait « dans l'app on voit bien que ça a
+  changé, mais ça ne marche pas ». `window.plumeDiag()` et
+  `window.__plumeErrors` exposent l'état du pont.
+- **`Api` : contrat de retour explicite.** Chaque méthode passe par
+  `@_api_call` : journalisée dans `debug.log`, elle renvoie toujours un
+  objet `{ok, error}` sérialisable — une exception ne se perd plus dans
+  une promesse rejetée ignorée. `set_setting` relit la valeur *sur le
+  disque* et la renvoie (`stored`), `set_hotkey` renvoie la combinaison
+  réellement enregistrée, et un `ping()` trace la vitalité du pont.
+- **Raccourci : un seul moteur pour les deux modes.** `GlobalHotKeys`
+  (mode bascule) et `HoldToTalk` (push-to-talk) sont remplacés par
+  `HotkeyEngine`, un unique écouteur brut. La combinaison est validée
+  **avant** d'arrêter l'écouteur en place, et un échec d'installation
+  restaure l'ancien raccourci au lieu de laisser l'app sans raccourci ou
+  avec l'ancien toujours actif à l'insu de l'UI. Le déclenchement est sur
+  front montant : la répétition clavier de l'OS ne peut plus double-armer.
+  Chaque déclenchement est tracé dans `debug.log`.
+- **Bips.** Joués sur leur propre thread (`winsound.Beep` est bloquant et
+  retardait le début de la capture et l'écriture du WAV), allongés de 70 à
+  130 ms et rendus plus distincts, avec repli sur `MessageBeep` (qui passe
+  par la carte son) et journalisation des échecs.
+- **Persistance (`config.py`).** `save()` renvoie un booléen, réessaie
+  `os.replace` 3 fois (antivirus/indexeur tenant le fichier ouvert sous
+  Windows), se replie sur une écriture directe, et journalise l'échec
+  au lieu du `except Exception: pass` qui masquait tout. Un `config.json`
+  corrompu est mis de côté en `config.json.bad` au lieu de faire retomber
+  silencieusement l'app sur les valeurs par défaut à chaque démarrage.
+  Ajout de `verify()` / `reload_from_disk()` pour relire ce qui est
+  réellement écrit.
+
+Durcissements issus de la relecture du correctif :
+
+- **L'injection du pont pywebview se fait en deux temps** :
+  `window.pywebview.api` existe (vide) avant que les méthodes n'y soient
+  greffées. Tester l'objet seul — ce que faisait le code d'origine —
+  pouvait donc réussir puis appeler `undefined`. Le test porte désormais
+  sur la présence effective de `api.ping`.
+- **Surface exposée au JS réduite** : pywebview parcourt l'objet `js_api`
+  avec `dir()` et expose récursivement tout ce qu'il trouve d'accessible.
+  `Api.app` étant public, ce sont des centaines de méthodes internes
+  (`app.quit`, `app.config.path.unlink`, `app.window.destroy`…) qui étaient
+  publiées à la page — et leur énumération, faite avant `pywebviewready`,
+  qui retardait la disponibilité du pont. L'attribut devient `Api._app`.
+- **Aucun échec ne peut laisser l'app sans raccourci** : si l'écouteur
+  refuse de démarrer, le précédent est ré-armé (`_restart`), et un passage
+  en push-to-talk refusé remet aussi la valeur enregistrée à l'ancienne.
+- `HotkeyEngine.start()` borne l'attente de `pynput` (son `wait()` est un
+  `Condition.wait()` sans délai : un backend qui meurt à l'initialisation
+  bloquait l'appelant indéfiniment, verrou en main).
+- Écritures de config : nom de fichier temporaire propre au processus et
+  verrou de sauvegarde, pour que la fin d'une dictée (écriture de
+  l'historique) et un changement de réglage ne se marchent plus dessus.
+- `debug.log` : rotation à 1 Mo, une génération conservée.
+
 ## v0.4.22
 
 - Root-caused the settings-not-persisting and push-to-talk-not-working

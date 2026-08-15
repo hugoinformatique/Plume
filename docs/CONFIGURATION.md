@@ -34,8 +34,8 @@ value)` writes a key and persists immediately.
 | `autopaste` | `true` | Paste the transcript into the active app automatically; if `false`, it's copied to the clipboard instead. |
 | `autostart` | `false` | Launch Plume when Windows starts (writes/removes a `HKCU\...\Run` registry value — packaged builds only, see `set_autostart()` in `plume.py`). |
 | `metrics` | `true` | Whether real dictations are logged to `metrics.csv` (see [BENCHMARKING.md](BENCHMARKING.md)). |
-| `push_to_talk` | `false` | `false`: press the hotkey to start, press again to stop (default). `true`: hold the hotkey to record, release to stop (`HoldToTalk` in `plume.py`, tracks raw key press/release instead of `pynput.GlobalHotKeys`' one-shot press detection). |
-| `sound_feedback` | `true` | Short, distinct start/stop beep (`winsound.Beep`). Independent of the listening bubble window, so it still gives feedback if that window fails to render. |
+| `push_to_talk` | `false` | `false`: press the hotkey to start, press again to stop (default). `true`: hold the hotkey to record, release to stop. Both modes are served by the same `HotkeyEngine` in `plume.py`, a raw press/release listener (edge-triggered, so OS key-repeat can't double-fire it) rather than `pynput.GlobalHotKeys`. |
+| `sound_feedback` | `true` | Short, distinct start/stop beep (`winsound.Beep`, played on its own thread, falling back to `MessageBeep`). Independent of the listening bubble window, so it still gives feedback if that window fails to render. |
 | `vocabulary` | `[]` | List of `{"from": str, "to": str}` — see below. |
 | `history` | `[]` | Last ~12 local dictations (`{"text": str, "timestamp": iso8601}`), most recent first. Never leaves the machine; shown in the "Dictée" tab. |
 

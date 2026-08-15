@@ -16,11 +16,11 @@ La CI construit l'installeur Windows automatiquement. Pour déclencher une relea
 
 ```bash
 # depuis le repo, sur le commit à tester
-git tag v0.4.22
-git push origin v0.4.22
+git tag v0.4.23
+git push origin v0.4.23
 ```
 
-Puis, sur GitHub : onglet **Releases** → `v0.4.22` → télécharge **`Plume-Setup-0.4.22.exe`**.
+Puis, sur GitHub : onglet **Releases** → `v0.4.23` → télécharge **`Plume-Setup-0.4.23.exe`**.
 (Le build prend ~5–10 min. Tu peux suivre l'avancement dans l'onglet **Actions**.)
 
 ### Option B — Sans tag : artifact d'un build manuel
@@ -39,7 +39,7 @@ git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
 
-Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.22.exe`.
+Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.23.exe`.
 
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
@@ -56,7 +56,7 @@ python plume.py
 
 ## 2. Installer et lancer
 
-1. Lance `Plume-Setup-0.4.22.exe` (installation sans droits admin, dans ton profil utilisateur).
+1. Lance `Plume-Setup-0.4.23.exe` (installation sans droits admin, dans ton profil utilisateur).
 2. Ouvre **Plume** depuis le menu Démarrer. La fenêtre est une **app native** (verre dépoli, noir & blanc), pas un navigateur.
 3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt à dicter »** quand le moteur est chaud.
 
@@ -93,6 +93,41 @@ Ferme la fenêtre (bouton **Réduire dans la barre**) : Plume reste actif dans l
   - **Quitter**
 
 Changer de modèle ou de moteur se fait dans **Réglages** et recharge le moteur en tâche de fond (le statut l'indique).
+
+---
+
+## 4 bis. Vérifier les réglages (raccourci, push-to-talk, bip, mise à jour)
+
+Depuis la v0.4.23, une action de l'interface qui échoue **le dit** au lieu de
+faire semblant : le libellé revient à sa valeur précédente et le message
+d'erreur s'affiche dans la ligne de statut. À tester dans cet ordre :
+
+1. **Raccourci** — Réglages → clic sur le raccourci → tape la combinaison.
+   Le libellé ne se fige sur la nouvelle valeur que si elle est réellement
+   enregistrée. Vérifie que l'ancienne combinaison ne déclenche plus rien.
+2. **Maintenir pour parler** — active la bascule, puis maintiens le raccourci :
+   l'enregistrement doit durer tant que tu tiens, et s'arrêter à la relâche.
+3. **Bip** — bip aigu au démarrage, plus grave à l'arrêt (130 ms). Si tu
+   n'entends rien mais que le reste marche, regarde `debug.log` : un échec de
+   `winsound` y est tracé.
+4. **Réglages** — change une valeur, **quitte l'app** (menu de la zone de
+   notification → Quitter), relance : la valeur doit être conservée.
+5. **Mises à jour** — le bouton doit toujours finir par afficher quelque chose
+   (version à jour, version disponible, ou un message d'erreur explicite).
+
+Si quelque chose ne marche toujours pas, le fichier
+`%APPDATA%\Plume\debug.log` tranche — envoie-le. On y lit :
+
+- `api ping()` : l'interface parle bien au moteur. **Absent ⇒ le pont
+  JS↔Python n'a jamais été établi**, et aucune action de l'UI ne peut marcher.
+- `api set_setting(...)` / `config saved: ...` / `config set: ... -> ok` :
+  le réglage est parti jusqu'au disque.
+- `hotkey installed: combo=... mode=toggle|push-to-talk` : ce qui est
+  réellement armé, et `hotkey fired:` / `hotkey released:` à chaque
+  déclenchement.
+
+Dans la fenêtre de l'app, `window.plumeDiag()` (console de développement)
+renvoie l'état du pont et la liste des erreurs rencontrées.
 
 ---
 

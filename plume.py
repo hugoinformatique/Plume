@@ -23,7 +23,7 @@ import requests
 import webview
 
 from sttlocal import DictationEngine, Recorder, clean_transcript, copy_text, paste_text
-from config import Config, config_dir, hotkey_to_pynput
+from config import Config, config_dir, hotkey_to_pynput, debug_log as _debug_log
 from vocabulary import Vocabulary
 
 
@@ -37,7 +37,7 @@ PROFILES = {
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 BUBBLE_W, BUBBLE_H = 252, 64
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.22"
+APP_VERSION = "0.4.23"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -124,83 +124,106 @@ def latest_release_info() -> dict:
     }
 
 
-def _debug_log(message: str) -> None:
-    """Minimal, always-on diagnostic trail for the handful of events that
-    have been hardest to reason about from user reports alone (hotkey mode,
-    settings writes, single-instance checks) -- independent of the
-    JS<->Python bridge and of whether devtools are enabled, so it's always
-    available as ground truth."""
-    try:
-        line = f"{datetime.now().strftime('%H:%M:%S')} — {message}\n"
-        with (config_dir() / "debug.log").open("a", encoding="utf-8") as fh:
-            fh.write(line)
-    except Exception:
-        pass
+def parse_combo_keys(combo: str) -> set:
+    """'<ctrl>+<space>' -> {Key.ctrl, KeyCode(vk=space)}.
 
+    Delegates to pynput's own HotKey.parse -- it returns modifiers as Key and
+    every other key as a vk-based KeyCode, which is exactly the normalised
+    form Listener.canonical() produces, so parsed combos compare equal to
+    live key events (ctrl_l/ctrl_r both canonicalise to ctrl).
 
-def _parse_combo_keys(combo: str):
-    """'<ctrl>+<space>' -> {Key.ctrl, Key.space}, for hold-to-talk matching.
-    Delegates to pynput's own HotKey.parse (the same parser GlobalHotKeys
-    uses internally) instead of a hand-rolled one, so combos behave
-    identically whether push-to-talk is on or off."""
+    Raises ValueError on an unparseable combo; callers validate *before*
+    tearing down a working listener.
+    """
     from pynput import keyboard
 
-    try:
-        return set(keyboard.HotKey.parse(combo))
-    except Exception:
-        return set()
+    return set(keyboard.HotKey.parse(combo))
 
 
-class HoldToTalk:
-    """Push-to-talk: call on_start when every key in the combo is held down
-    together, on_stop as soon as any of them is released. Unlike
-    GlobalHotKeys (which fires once per full press, toggle-style), this
-    tracks raw key state for a true "hold to record" gesture."""
+class HotkeyEngine:
+    """One raw keyboard listener driving both hotkey modes.
 
-    def __init__(self, combo: str, on_start, on_stop) -> None:
-        self._combo = _parse_combo_keys(combo)
-        self._on_start = on_start
-        self._on_stop = on_stop
+    Previously toggle mode used pynput's GlobalHotKeys and push-to-talk used a
+    separate raw listener. Two code paths meant two sets of failure modes --
+    and a GlobalHotKeys instance whose stop() didn't take effect kept the old
+    shortcut alive after a change. Here a single listener tracks raw key state
+    and fires on *transitions*:
+
+      - hold=False: on_activate() once when the combo becomes complete
+        (edge-triggered, so OS key-repeat cannot double-fire it),
+      - hold=True: on_activate() when complete, on_deactivate() as soon as any
+        key of the combo is released.
+    """
+
+    def __init__(self, combo: str, on_activate, on_deactivate=None, hold: bool = False) -> None:
+        self.combo = combo
+        self.hold = hold
+        self._keys = parse_combo_keys(combo)  # may raise: validate at build time
+        self._on_activate = on_activate
+        self._on_deactivate = on_deactivate
         self._pressed: set = set()
         self._active = False
         self._listener = None
 
     def start(self) -> None:
+        """Start the listener and wait (briefly) for its message loop to exist.
+
+        pynput's Listener.wait() is an unbounded Condition.wait(): if the
+        backend fails while setting up (no display on a dev machine, hook
+        refused), the thread dies without ever marking itself ready and wait()
+        never returns -- which would hang the caller while it holds the hotkey
+        lock. Bound it, then check the listener is actually alive.
+        """
         from pynput import keyboard
 
         self._listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
         self._listener.start()
+        waiter = threading.Thread(target=self._listener.wait, daemon=True)
+        waiter.start()
+        waiter.join(2.0)
+        if waiter.is_alive() or not self._listener.running:
+            self.stop()
+            raise RuntimeError("écouteur clavier indisponible (hook refusé par le système)")
 
     def stop(self) -> None:
-        if self._listener is not None:
+        listener, self._listener = self._listener, None
+        if listener is not None:
             try:
-                self._listener.stop()
+                listener.stop()
             except Exception:
                 pass
-            self._listener = None
         self._pressed.clear()
         self._active = False
 
-    def join(self, timeout: float | None = None) -> None:
-        pass  # kept for interface parity with pynput.keyboard.GlobalHotKeys
-
     def _canonical(self, key):
+        listener = self._listener
+        if listener is None:
+            return key
         try:
-            return self._listener.canonical(key)
+            return listener.canonical(key)
         except Exception:
             return key
 
     def _on_press(self, key) -> None:
         self._pressed.add(self._canonical(key))
-        if not self._active and self._combo and self._combo.issubset(self._pressed):
+        if not self._active and self._keys.issubset(self._pressed):
             self._active = True
-            self._on_start()
+            _debug_log(f"hotkey fired: {self.combo} ({'hold' if self.hold else 'toggle'})")
+            try:
+                self._on_activate()
+            except Exception as exc:  # noqa: BLE001 - never kill the listener thread
+                _debug_log(f"hotkey callback error: {exc}")
 
     def _on_release(self, key) -> None:
         self._pressed.discard(self._canonical(key))
-        if self._active and not self._combo.issubset(self._pressed):
+        if self._active and not self._keys.issubset(self._pressed):
             self._active = False
-            self._on_stop()
+            if self.hold and self._on_deactivate is not None:
+                _debug_log(f"hotkey released: {self.combo}")
+                try:
+                    self._on_deactivate()
+                except Exception as exc:  # noqa: BLE001
+                    _debug_log(f"hotkey callback error: {exc}")
 
 
 class PlumeApp:
@@ -215,7 +238,7 @@ class PlumeApp:
         self.bubble = None
         self.tray = None
         self.hotkeys = None
-        self._hotkey = None
+        self._hotkey_lock = threading.Lock()
         self.recording = False
         self.worker: threading.Thread | None = None
         self._level_stop = threading.Event()
@@ -350,16 +373,36 @@ class PlumeApp:
             self._stop()
 
     def _beep(self, kind: str) -> None:
+        """Short audio cue on start/stop, independent of the bubble.
+
+        Fired on its own thread: winsound.Beep is synchronous, and blocking
+        the caller delayed the actual start of the capture (and, on stop, the
+        WAV flush) by the duration of the tone.
+        """
         if not self.config.get("sound_feedback") or sys.platform != "win32":
             return
+        threading.Thread(target=self._beep_now, args=(kind,), daemon=True).start()
+
+    def _beep_now(self, kind: str) -> None:
         try:
             import winsound
-            # Distinct short tones so start/stop are recognizable without
-            # looking at the screen; independent of the bubble window.
-            freq, dur = (880, 70) if kind == "start" else (523, 70)
+            # Distinct tones so start/stop are recognizable without looking at
+            # the screen. 130 ms rather than the previous 70 ms, which went
+            # unnoticed on most machines -- still short enough to stay discreet.
+            freq, dur = (988, 130) if kind == "start" else (587, 130)
             winsound.Beep(freq, dur)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # Beep() drives the (emulated) system speaker and is refused on
+            # some machines/sessions; MessageBeep goes through the normal
+            # audio device instead.
+            _debug_log(f"beep failed ({kind}): {exc}")
+            try:
+                import winsound
+                winsound.MessageBeep(
+                    winsound.MB_ICONASTERISK if kind == "start" else winsound.MB_OK
+                )
+            except Exception as exc2:  # noqa: BLE001
+                _debug_log(f"MessageBeep fallback failed ({kind}): {exc2}")
 
     def _start(self) -> None:
         self.recording = True
@@ -471,44 +514,71 @@ class PlumeApp:
             pass
 
     # ---- hotkey -------------------------------------------------------------
-    def _install_hotkey(self) -> None:
+    def _restart(self, engine: "HotkeyEngine | None") -> bool:
+        """Re-arm a previously working engine after a failed rebind."""
+        if engine is None:
+            return False
         try:
-            from pynput import keyboard
-        except Exception:
-            return
-        if self.hotkeys is not None:
-            try:
-                self.hotkeys.stop()
-                self.hotkeys.join(timeout=0.5)
-            except Exception:
-                pass
-            self.hotkeys = None
-            self._hotkey = None
-        combo = self.config.get("hotkey") or "<ctrl>+<space>"
-        try:
-            if self.config.get("push_to_talk"):
-                # Hold the combo to record, release to stop -- raw key-state
-                # tracking rather than GlobalHotKeys' one-shot press
-                # detection, which only supports toggle semantics.
-                self.hotkeys = HoldToTalk(
-                    combo,
-                    on_start=lambda: threading.Thread(target=self._ptt_press, daemon=True).start(),
-                    on_stop=lambda: threading.Thread(target=self._ptt_release, daemon=True).start(),
-                )
-            else:
-                # GlobalHotKeys re-registers the real Windows hook each time
-                # the shortcut changes. It is more reliable than keeping a
-                # manual press/release listener alive across shortcut edits.
-                self.hotkeys = keyboard.GlobalHotKeys({
-                    combo: lambda: threading.Thread(target=self.toggle, daemon=True).start()
-                })
-            self.hotkeys.start()
-            mode = "push-to-talk" if self.config.get("push_to_talk") else "toggle"
-            _debug_log(f"hotkey installed: combo={combo} mode={mode}")
-            self._set_status("Raccourci enregistré", "Prêt")
+            clone = HotkeyEngine(
+                engine.combo, engine._on_activate, engine._on_deactivate, hold=engine.hold
+            )
+            clone.start()
         except Exception as exc:  # noqa: BLE001
-            _debug_log(f"hotkey install FAILED: {exc}")
-            self._set_status(f"Raccourci invalide : {exc}", "")
+            _debug_log(f"hotkey restore FAILED: combo={engine.combo} err={exc}")
+            return False
+        self.hotkeys = clone
+        _debug_log(f"hotkey restored: combo={engine.combo} mode={'hold' if engine.hold else 'toggle'}")
+        return True
+
+    def _install_hotkey(self) -> dict:
+        """(Re)bind the global shortcut. Returns {"ok", "error"} so the UI can
+        tell the user when a combination could not be registered instead of
+        silently keeping the previous one."""
+        combo = self.config.get("hotkey") or "<ctrl>+<space>"
+        hold = bool(self.config.get("push_to_talk"))
+        mode = "push-to-talk" if hold else "toggle"
+        with self._hotkey_lock:
+            # Build (and therefore validate the combo) *before* tearing down the
+            # working listener: a typo used to leave the app with no shortcut at
+            # all, or with the old one still bound.
+            try:
+                engine = HotkeyEngine(
+                    combo,
+                    on_activate=(lambda: threading.Thread(target=self._ptt_press, daemon=True).start())
+                    if hold else
+                    (lambda: threading.Thread(target=self.toggle, daemon=True).start()),
+                    on_deactivate=lambda: threading.Thread(target=self._ptt_release, daemon=True).start(),
+                    hold=hold,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _debug_log(f"hotkey build FAILED: combo={combo} mode={mode} err={exc}")
+                self._set_status(f"Raccourci invalide : {exc}", "")
+                return {"ok": False, "error": f"Raccourci invalide : {exc}"}
+
+            old, self.hotkeys = self.hotkeys, None
+            if old is not None:
+                try:
+                    old.stop()
+                except Exception as exc:  # noqa: BLE001
+                    _debug_log(f"hotkey stop of previous listener failed: {exc}")
+            try:
+                engine.start()
+            except Exception as exc:  # noqa: BLE001
+                _debug_log(f"hotkey install FAILED: combo={combo} mode={mode} err={exc}")
+                # Never leave the app with no shortcut at all: put the previous
+                # listener back (a fresh instance -- a stopped pynput listener
+                # cannot be restarted).
+                restored = self._restart(old)
+                self._set_status(f"Raccourci indisponible : {exc}", "")
+                return {
+                    "ok": False,
+                    "error": f"Raccourci indisponible : {exc}",
+                    "restored": restored,
+                }
+            self.hotkeys = engine
+        _debug_log(f"hotkey installed: combo={combo} mode={mode}")
+        self._set_status(f"Raccourci actif : {self.config.get('hotkey_display')}", "Prêt")
+        return {"ok": True, "error": None}
 
     # ---- tray ---------------------------------------------------------------
     def _tray_image(self):
@@ -683,18 +753,59 @@ def _create_window(title, url, **kwargs):
         return webview.create_window(title, url, **kwargs)
 
 
+def _api_call(fn):
+    """Every UI action goes through here: it lands in debug.log and always
+    answers the UI with a serialisable {"ok": ...} object.
+
+    Until now an exception raised inside an Api method surfaced as a rejected
+    promise that the UI dropped on the floor, so a failing action was
+    indistinguishable from a working one -- the symptom being "the app shows
+    the change but nothing happens"."""
+
+    def wrapper(self, *args, **kwargs):
+        _debug_log(f"api {fn.__name__}{args!r}")
+        try:
+            result = fn(self, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001
+            _debug_log(f"api {fn.__name__} FAILED: {type(exc).__name__}: {exc}")
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        if isinstance(result, dict):
+            result.setdefault("ok", True)
+            result.setdefault("error", None)
+            return result
+        return result if result is not None else {"ok": True, "error": None}
+
+    wrapper.__name__ = fn.__name__
+    wrapper.__doc__ = fn.__doc__
+    return wrapper
+
+
 class Api:
-    """Methods exposed to the web UI as window.pywebview.api.*"""
+    """Methods exposed to the web UI as window.pywebview.api.*
+
+    The app reference is deliberately private: pywebview walks the js_api
+    object with dir() and exposes every callable it finds, recursing into
+    public attributes. A public `self.app` therefore published hundreds of
+    nested methods to page JS (`app.quit`, `app.config.path.unlink`, ...) and
+    made the bridge injection -- which enumerates them all before firing
+    `pywebviewready` -- measurably slower to become usable.
+    """
 
     def __init__(self, app: PlumeApp) -> None:
-        self.app = app
+        self._app = app
 
+    @_api_call
+    def ping(self):
+        """Bridge liveness probe, called by the UI on startup."""
+        return {"ok": True, "version": APP_VERSION}
+
+    @_api_call
     def get_state(self):
-        c = self.app.config
+        c = self._app.config
         backend, device = c.get("backend"), c.get("device")
         profile = next((k for k, v in PROFILES.items() if v == (backend, device)), "fw-cpu")
         return {
-            "words": self.app.vocab.to_list(),
+            "words": self._app.vocab.to_list(),
             "history": c.get("history", []),
             "app_version": APP_VERSION,
             "config": {
@@ -705,89 +816,145 @@ class Api:
                 "autopaste": c.get("autopaste"), "autostart": c.get("autostart"),
                 "push_to_talk": c.get("push_to_talk"), "sound_feedback": c.get("sound_feedback"),
             },
+            "bridge": True,
         }
 
+    @_api_call
     def toggle(self):
-        self.app.toggle()
+        self._app.toggle()
 
+    @_api_call
     def add_word(self, heard, correct):
-        self.app.vocab.add(heard, correct)
-        self.app.config.set("vocabulary", self.app.vocab.to_list())
+        self._app.vocab.add(heard, correct)
+        return {"ok": self._app.config.set("vocabulary", self._app.vocab.to_list())}
 
+    @_api_call
     def remove_word(self, index):
-        self.app.vocab.remove(int(index))
-        self.app.config.set("vocabulary", self.app.vocab.to_list())
+        self._app.vocab.remove(int(index))
+        return {"ok": self._app.config.set("vocabulary", self._app.vocab.to_list())}
 
+    @_api_call
     def paste_history(self, index):
-        history = self.app.config.get("history", [])
+        history = self._app.config.get("history", [])
         try:
             text = history[int(index)]["text"]
         except Exception:
-            return
+            return {"ok": False, "error": "Entrée d'historique introuvable"}
         paste_text(text)
-        self.app._set_status("Historique recollé", "Prêt")
+        self._app._set_status("Historique recollé", "Prêt")
 
+    @_api_call
     def copy_history(self, index):
-        history = self.app.config.get("history", [])
+        history = self._app.config.get("history", [])
         try:
             text = history[int(index)]["text"]
         except Exception:
-            return
+            return {"ok": False, "error": "Entrée d'historique introuvable"}
         copy_text(text)
-        self.app._set_status("Historique copié", "Prêt")
+        self._app._set_status("Historique copié", "Prêt")
 
+    @_api_call
     def set_hotkey(self, display):
-        self.app.config.data["hotkey_display"] = display
-        self.app.config.set("hotkey", hotkey_to_pynput(display))
-        self.app._install_hotkey()
+        """Persist the new shortcut, then rebind it. The rebind is what the UI
+        confirms on: a combination that can be displayed is not necessarily one
+        pynput can register."""
+        combo = hotkey_to_pynput(display)
+        previous_display = self._app.config.get("hotkey_display")
+        previous_combo = self._app.config.get("hotkey")
+        self._app.config.data["hotkey_display"] = display
+        saved = self._app.config.set("hotkey", combo)
+        installed = self._app._install_hotkey()
+        if not installed.get("ok"):
+            # Roll back to what is actually bound, so the UI and the real
+            # shortcut can never drift apart.
+            self._app.config.data["hotkey_display"] = previous_display
+            self._app.config.set("hotkey", previous_combo)
+            self._app._install_hotkey()
+            return {
+                "ok": False, "error": installed.get("error"),
+                "hotkey_display": previous_display, "combo": previous_combo,
+            }
+        if not saved:
+            # The shortcut *is* armed -- reporting a failure here would make
+            # the UI revert to a label that no longer matches reality. Warn
+            # instead: it is the persistence that failed, not the binding.
+            return {
+                "ok": True, "hotkey_display": display, "combo": combo,
+                "warning": "Raccourci actif, mais non enregistré : écriture de config.json impossible (voir debug.log)",
+            }
+        return {"ok": True, "hotkey_display": display, "combo": combo}
 
+    @_api_call
     def set_setting(self, key, value):
-        _debug_log(f"set_setting called: {key}={value!r}")
+        previous = self._app.config.get(key)
         if key == "profile":
             backend, device = PROFILES.get(value, PROFILES["fw-cpu"])
-            self.app.config.data["backend"] = backend
-            self.app.config.data["device"] = device
-            current_model = str(self.app.config.get("model") or "")
+            self._app.config.data["backend"] = backend
+            self._app.config.data["device"] = device
+            current_model = str(self._app.config.get("model") or "")
             if backend == "openvino" and current_model in FAST_WHISPER_MODEL_NAMES:
-                self.app.config.data["model"] = DEFAULT_OPENVINO_MODEL
+                self._app.config.data["model"] = DEFAULT_OPENVINO_MODEL
             elif backend == "faster-whisper" and current_model.startswith("models\\openvino\\"):
-                self.app.config.data["model"] = "small"
-            self.app.config.save()
+                self._app.config.data["model"] = "small"
+            saved = self._app.config.save()
+            stored = value if self._app.config.verify("backend") == backend else None
         else:
-            self.app.config.set(key, value)
+            saved = self._app.config.set(key, value)
+            stored = self._app.config.verify(key)
         if key in ("model", "profile", "compute", "language"):
-            threading.Thread(target=self.app._preload, daemon=True).start()
+            threading.Thread(target=self._app._preload, daemon=True).start()
         if key == "autostart":
             set_autostart(bool(value))
         if key == "push_to_talk":
-            threading.Thread(target=self.app._install_hotkey, daemon=True).start()
+            # Synchronous: the answer tells the UI whether the mode is really
+            # in effect, which is the whole point of the confirmation.
+            installed = self._app._install_hotkey()
+            if not installed.get("ok"):
+                # The mode could not be armed -- put the stored value back so a
+                # restart doesn't come up in a mode that never worked.
+                self._app.config.set(key, previous)
+                self._app._install_hotkey()
+                return {"ok": False, "key": key, "value": previous, "error": installed.get("error")}
+        if not saved:
+            return {
+                "ok": False, "key": key, "value": value,
+                "error": "Écriture de config.json impossible (voir debug.log)",
+            }
+        # Read back from disk rather than trusting the in-memory dict: this is
+        # what makes "the setting did not persist" detectable at the source.
+        return {"ok": True, "key": key, "value": value, "stored": stored}
 
+    @_api_call
     def minimize(self):
         try:
-            self.app.window.minimize()
+            self._app.window.minimize()
         except Exception:
             try:
-                self.app.window.hide()
+                self._app.window.hide()
             except Exception:
                 pass
 
+    @_api_call
     def hide_window(self):
         try:
-            self.app.window.hide()
+            self._app.window.hide()
         except Exception:
             try:
-                self.app.window.minimize()
+                self._app.window.minimize()
             except Exception:
                 pass
 
+    @_api_call
     def quit(self):
-        self.app.quit()
+        self._app.quit()
 
+    @_api_call
     def check_update(self):
-        return self.app.check_for_update(notify=True)
+        return self._app.check_for_update(notify=True)
 
+    @_api_call
     def install_update(self):
-        threading.Thread(target=self.app._download_and_launch_update, daemon=True).start()
+        threading.Thread(target=self._app._download_and_launch_update, daemon=True).start()
         return {"started": True}
 
 

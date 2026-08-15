@@ -10,10 +10,16 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
+import time
+from datetime import datetime
 from pathlib import Path
 
 
 APP_DIR_NAME = "Plume"
+_LOG_MAX_BYTES = 1_000_000
+# Saves come from several threads (UI bridge, transcription worker, tray).
+_SAVE_LOCK = threading.Lock()
 
 DEFAULTS = {
     "language": "fr",
@@ -45,6 +51,31 @@ def config_dir() -> Path:
     return path
 
 
+def debug_log(message: str) -> None:
+    """Minimal, always-on diagnostic trail for the handful of events that
+    have been hardest to reason about from user reports alone (hotkey mode,
+    settings writes, single-instance checks) -- independent of the
+    JS<->Python bridge and of whether devtools are enabled, so it's always
+    available as ground truth. It lives here rather than in plume.py so that
+    config writes -- the failures users actually report -- can be traced.
+
+    Rotated at 1 MB (one generation kept): it now traces every UI action and
+    every hotkey activation, which would otherwise grow without bound in the
+    user's %APPDATA%."""
+    try:
+        path = config_dir() / "debug.log"
+        try:
+            if path.stat().st_size > _LOG_MAX_BYTES:
+                path.replace(path.with_suffix(".log.1"))
+        except FileNotFoundError:
+            pass
+        line = f"{datetime.now().strftime('%H:%M:%S')} — {message}\n"
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+    except Exception:
+        pass
+
+
 class Config:
     def __init__(self, data: dict) -> None:
         self.data = data
@@ -57,29 +88,87 @@ class Config:
         if path.exists():
             try:
                 data.update(json.loads(path.read_text(encoding="utf-8")))
-            except Exception:
-                pass
+            except Exception as exc:
+                # A corrupt file would otherwise silently look like "all my
+                # settings reset". Move it aside so the next save() starts from
+                # a clean slate instead of failing to parse again forever.
+                debug_log(f"config load FAILED: {type(exc).__name__}: {exc} ({path})")
+                try:
+                    path.replace(path.with_suffix(".json.bad"))
+                except Exception as exc2:
+                    debug_log(f"could not quarantine bad config: {type(exc2).__name__}: {exc2}")
         return cls(data)
 
-    def save(self) -> None:
+    def save(self) -> bool:
+        with _SAVE_LOCK:
+            return self._save()
+
+    def _save(self) -> bool:
         # Write-then-rename instead of writing the file in place: an
         # interrupted write (crash, forced kill, antivirus scan mid-write)
         # can otherwise leave config.json truncated, which makes the next
         # load() silently fall back to full DEFAULTS and looks like every
         # setting got reset. os.replace is atomic on the same filesystem.
+        #
+        # On Windows the replace itself can fail transiently: antivirus or the
+        # search indexer may hold the target open for a few dozen ms. Hence the
+        # retries, then a last-resort in-place write (losing atomicity beats
+        # losing the user's settings), then a logged failure -- never silence.
+        #
+        # The temp name carries the pid: a dictation finishing (history write,
+        # worker thread) while the user flips a setting (bridge thread) had two
+        # saves racing on one shared config.json.tmp, and the loser fell all the
+        # way through to the non-atomic path for no reason.
+        tmp = self.path.with_suffix(f".{os.getpid()}.tmp")
+        payload = json.dumps(self.data, ensure_ascii=False, indent=2)
         try:
-            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
-            os.replace(tmp, self.path)
-        except Exception:
-            pass
+            tmp.write_text(payload, encoding="utf-8")
+            last: Exception | None = None
+            for attempt in range(3):
+                try:
+                    os.replace(tmp, self.path)
+                    debug_log(f"config saved: {self.path} ({len(self.data)} keys)")
+                    return True
+                except Exception as exc:
+                    last = exc
+                    time.sleep(0.15)
+            debug_log(f"config replace failed after 3 tries ({type(last).__name__}: {last}), writing in place")
+            self.path.write_text(payload, encoding="utf-8")
+            debug_log(f"config saved: {self.path} ({len(self.data)} keys)")
+            return True
+        except Exception as exc:
+            debug_log(f"config save FAILED: {type(exc).__name__}: {exc} ({str(self.path)})")
+            return False
+        finally:
+            # Never leave a stray .tmp behind: it confuses users looking at the
+            # config dir, and a leftover from a crashed run is meaningless.
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     def get(self, key, default=None):
         return self.data.get(key, DEFAULTS.get(key, default))
 
-    def set(self, key, value) -> None:
+    def set(self, key, value) -> bool:
         self.data[key] = value
-        self.save()
+        ok = self.save()
+        # history/vocabulary can be thousands of characters; log their size only.
+        shown = f"{len(value)} items" if key in ("history", "vocabulary") else repr(value)
+        debug_log(f"config set: {key}={shown} -> {'ok' if ok else 'FAILED'}")
+        return ok
+
+    def reload_from_disk(self) -> dict:
+        """What is actually persisted right now -- used to check that a write
+        landed, rather than trusting the in-memory copy."""
+        try:
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def verify(self, key, default=None):
+        """Value of `key` as stored on disk, DEFAULTS otherwise."""
+        return self.reload_from_disk().get(key, DEFAULTS.get(key, default))
 
 
 # ---- hotkey display <-> pynput format ---------------------------------------

@@ -376,8 +376,45 @@
   </main>
 
 <script>
-  const hasAPI = () => window.pywebview && window.pywebview.api;
-  const api = new Proxy({}, { get:(_,k)=> (...a)=> hasAPI() ? window.pywebview.api[k](...a) : Promise.resolve() });
+  // --- Liaison interface <-> moteur (pywebview) -----------------------------
+  // Les appels émis avant l'injection du pont sont mis en attente, jamais
+  // avalés. Le pont est résolu par l'évènement `pywebviewready` OU par un
+  // sondage (l'évènement peut avoir déjà été émis avant ce script).
+  const BRIDGE_TIMEOUT = 10000, BRIDGE_DOWN = "Liaison interface↔moteur indisponible";
+  window.__plumeErrors = window.__plumeErrors || [];
+  // pywebview injecte le pont en deux temps : `window.pywebview.api` existe
+  // (vide) avant que les méthodes n'y soient greffées. Tester l'objet seul
+  // laissait le sondage résoudre sur une API vide -> « méthode inconnue ».
+  // `ping` est la dernière garantie : on attend une vraie fonction.
+  const hasAPI = () => !!(window.pywebview && window.pywebview.api
+                          && typeof window.pywebview.api.ping === "function");
+  const showError = (m)=>{ try{ window.plume.setStatus(m, "Erreur"); }catch(_){} };
+  function reportBridgeError(name, err){
+    const msg = (err && err.message) || String(err);
+    console.error("[plume] " + name + " a échoué :", err);
+    window.__plumeErrors.push({ method:name, error:msg, at:new Date().toISOString() });
+    showError(name + " : " + msg);
+    return { ok:false, error:msg, __bridgeError:true };
+  }
+  const bridgeReady = new Promise((resolve, reject)=>{
+    if(hasAPI()) return resolve(window.pywebview.api);
+    let done=false, poll=0, giveUp=0;
+    const ready=()=>{ if(done || !hasAPI()) return; done=true;
+      clearInterval(poll); clearTimeout(giveUp); resolve(window.pywebview.api); };
+    window.addEventListener("pywebviewready", ready);
+    poll=setInterval(ready, 50);
+    giveUp=setTimeout(()=>{ if(done) return; done=true; clearInterval(poll);
+      document.body.dataset.bridge="down"; showError(BRIDGE_DOWN);
+      reject(new Error(BRIDGE_DOWN));
+    }, BRIDGE_TIMEOUT);
+  });
+  bridgeReady.catch(()=>{}); // évite un rejet non capturé si aucun appel n'est en vol
+  const api = new Proxy({}, { get:(_,k)=> (...a)=> bridgeReady.then(bridge=>{
+    const fn = bridge[k];
+    if(typeof fn !== "function") throw new Error("méthode inconnue « " + String(k) + " »");
+    return fn(...a);
+  }).catch(err=> reportBridgeError(String(k), err)) });
+  window.plumeDiag = () => ({ bridge: hasAPI(), errors: window.__plumeErrors });
   const state = {
     recording:false,
     appVersion:"",
@@ -403,9 +440,14 @@
   advToggle.addEventListener("click", ()=>{ adv.classList.toggle("open"); document.body.classList.toggle("advopen"); });
   // persist settings
   const settingMap = { lang:"language", model:"model", bubble:"bubble_position", cleanup:"cleanup", compute:"compute", profile:"profile" };
+  // `set_setting` renvoie {ok, key, value, error} : on signale les refus.
+  const setSetting = (key, value)=> api.set_setting(key, value).then(r=>{
+    if(r && r.ok===false) showError(r.error || ("Réglage « " + key + " » refusé"));
+    return r;
+  });
   Object.keys(settingMap).forEach(id=>{ const el=document.getElementById(id);
-    el && el.addEventListener("change", ()=> api.set_setting(settingMap[id], el.value)); });
-  document.getElementById("model").addEventListener("blur", e=>api.set_setting("model", e.target.value.trim() || "small"));
+    el && el.addEventListener("change", ()=> setSetting(settingMap[id], el.value)); });
+  document.getElementById("model").addEventListener("blur", e=>setSetting("model", e.target.value.trim() || "small"));
   document.getElementById("profile").addEventListener("change", e=>{
     const model=document.getElementById("model");
     if(e.target.value.startsWith("ov-") && ["base","small","medium","turbo"].includes(model.value)){
@@ -414,12 +456,22 @@
     if(e.target.value==="fw-cpu" && model.value.startsWith("models\\openvino\\")){
       model.value="small";
     }
-    api.set_setting("model", model.value);
+    setSetting("model", model.value);
   });
   const tgPaste=document.getElementById("tgPaste"), tgStartup=document.getElementById("tgStartup");
   const tgPtt=document.getElementById("tgPtt"), tgSound=document.getElementById("tgSound");
   function wireToggle(el, settingKey){
-    const flip=()=>{ const on=el.classList.toggle("on"); el.setAttribute("aria-checked", on); api.set_setting(settingKey, on); };
+    // Bascule optimiste, puis retour en arrière si le moteur refuse.
+    const flip=()=>{ const on=el.classList.toggle("on"); el.setAttribute("aria-checked", on);
+      api.set_setting(settingKey, on).then(r=>{
+        if(r && r.ok===false){
+          // Retour à la valeur réellement en vigueur (Python renvoie l'ancienne).
+          const real = typeof r.value === "boolean" ? r.value : !on;
+          el.classList.toggle("on", real); el.setAttribute("aria-checked", real);
+          if(!r.__bridgeError) showError(r.error || ("Réglage « " + settingKey + " » refusé"));
+        }
+      });
+    };
     el.addEventListener("click", flip);
     el.addEventListener("keydown", e=>{ if(e.key===" "||e.key==="Enter"){ e.preventDefault(); flip(); } });
   }
@@ -437,14 +489,20 @@
     setTg(tgPtt, c.push_to_talk); setTg(tgSound, c.sound_feedback !== false);
     if(c.hotkey_display){ document.getElementById("hotcap").textContent=c.hotkey_display; document.getElementById("hotHint").textContent=c.hotkey_display; }
   }
-  window.addEventListener("pywebviewready", ()=>{
-    api.get_state().then(s=>{
-      if(s&&s.words){ state.words=s.words; renderChips(); }
-      if(s&&s.history){ state.history=s.history; renderHistory(); }
-      if(s&&s.app_version){ state.appVersion=s.app_version; updateLine.textContent=`Version installée ${s.app_version}`; }
-      if(s&&s.config) applyConfig(s.config);
+  // Chargement de l'état réel : passe par `bridgeReady`, donc fonctionne que
+  // `pywebviewready` ait déjà été émis ou non.
+  function loadState(){
+    // `ping` laisse une trace côté Python (debug.log) : si elle manque, c'est
+    // le pont lui-même qui n'a jamais été injecté, pas l'action de l'utilisateur.
+    api.ping();
+    return api.get_state().then(s=>{
+      if(!s || s.__bridgeError) return;
+      if(s.words){ state.words=s.words; renderChips(); }
+      if(s.history){ state.history=s.history; renderHistory(); }
+      if(s.app_version){ state.appVersion=s.app_version; updateLine.textContent=`Version installée ${s.app_version}`; }
+      if(s.config) applyConfig(s.config);
     });
-  });
+  }
 
   const updateBar=document.getElementById("updateBar");
   const updateTitle=document.getElementById("updateTitle");
@@ -486,8 +544,11 @@
   checkUpdate.addEventListener("click", ()=>{
     checkUpdate.disabled=true;
     updateLine.textContent="Recherche en cours…";
-    api.check_update().then(info=>{ setUpdate(info); checkUpdate.disabled=false; })
-      .catch(()=>{ updateLine.textContent="Recherche impossible"; checkUpdate.disabled=false; });
+    api.check_update().then(info=>{
+      if(!info || info.__bridgeError) updateLine.textContent="Recherche impossible";
+      else setUpdate(info);
+    }).catch(()=>{ updateLine.textContent="Recherche impossible"; })
+      .then(()=>{ checkUpdate.disabled=false; });
   });
 
   const chips=document.getElementById("chips");
@@ -529,7 +590,15 @@
   historySearch && historySearch.addEventListener("input", renderHistory);
 
   const hotcap=document.getElementById("hotcap");
-  hotcap.addEventListener("click", ()=>{ hotcap.textContent="Tape la combinaison…";
+  const hotHint=document.getElementById("hotHint");
+  let capturing=false;
+  hotcap.addEventListener("click", ()=>{
+    // Un 2e clic pendant la capture mémoriserait « Tape la combinaison… »
+    // comme libellé précédent et armerait un 2e écouteur.
+    if(capturing) return;
+    capturing=true;
+    const prev=hotcap.textContent, prevHint=hotHint.textContent;
+    hotcap.textContent="Tape la combinaison…";
     const h=e=>{ e.preventDefault(); e.stopPropagation();
       if(["Control","Alt","Shift","Meta"].includes(e.key)) return;
       const parts=[]; if(e.ctrlKey)parts.push("Ctrl"); if(e.altKey)parts.push("Alt"); if(e.shiftKey)parts.push("Maj"); if(e.metaKey)parts.push("Win");
@@ -537,7 +606,20 @@
       const k=aliases[e.key] || (e.key.length===1 ? e.key.toUpperCase() : e.key);
       parts.push(k);
       const s=parts.join(" + ");
-      hotcap.textContent=s; document.getElementById("hotHint").textContent=s; window.removeEventListener("keydown",h); api.set_hotkey(s);
+      hotcap.textContent=s; hotHint.textContent=s;
+      window.removeEventListener("keydown",h); capturing=false;
+      // Le nouveau libellé n'est conservé que si le moteur confirme.
+      api.set_hotkey(s).then(r=>{
+        if(r && r.ok===false){
+          hotcap.textContent=prev; hotHint.textContent=prevHint;
+          showError(r.error || ("Raccourci « " + s + " » refusé"));
+          return;
+        }
+        const conf = r && r.hotkey_display;
+        if(conf){ hotcap.textContent=conf; hotHint.textContent=conf; }
+        // Raccourci armé mais non enregistré : on garde le libellé, on prévient.
+        if(r && r.warning) showError(r.warning);
+      });
     };
     window.addEventListener("keydown",h);
   });
@@ -551,6 +633,7 @@
   };
   renderChips();
   renderHistory();
+  loadState();
 </script>
 </body>
 </html>
