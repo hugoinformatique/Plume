@@ -208,6 +208,14 @@ target for Whisper. The **NPU** trades some speed for low power, low heat, and a
 free CPU. Don't assume NPU is fastest — measure with `benchmark.py` (below) on
 your actual PC, then decide.
 
+**NPU fails with `Port for tensor name cache_position was not found`**: the
+model was exported with a `transformers` version newer than the NPU static
+pipeline supports. `requirements-openvino.txt` pins `transformers==4.51.3`
+per Intel's guidance — if you installed before that pin existed, run
+`pip install transformers==4.51.3` and **re-export** the model (the export
+format depends on the transformers version at export time, not just what's
+installed now). CPU/GPU are not affected by this.
+
 ## Privacy Positioning
 
 The MVP uses local inference. It does not call an API for transcription.
