@@ -5,6 +5,15 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.26
+
+- **Design « Goutte d'eau & Liquid Glass » pour la bulle flottante.**
+  Refonte visuelle et cinématique complète de la bulle (`floating_bubble.py` et `listening_bubble.py`) :
+  - **Optique multicouche liquide** : galet organique 276x68 (rayon 30 px), ombre de contact douce (`#030508`), corps en verre fumé liquide (`#0C0F17` / `#121724`), croissant de réflexion spéculaire zénithal (`#192233` + arc `#3B5270` + traînée `#82A7CF` + pointe d'éclat `#E2F0FD`) simulant la courbure convexe d'une goutte d'eau, caustique inférieure (`#172233`) et ménisque de surface (`#2A384C`).
+  - **Perle d'eau & indicateur 3D** : halo liquide respirant, perle d'eau aqua/menthe luminescente (`#00F5B8` / `#2DD4BF`) à l'écoute, vortex liquide océanique en orbite chromatique (`#38BDF8` ↔ `#818CF8`) en transcription, éclat diamant pur (`#FFFFFF`) lors du collage, et micro-point spéculaire 3D zénithal.
+  - **Égaliseur d'ondes fluides** : 7 capsules réactives à la voix avec physique de rides de surface (dispersion sinusoïdale de phase, répartition parabolique centrée, amortissement visqueux asymétrique avec attaque vive et retombée flottante).
+  - Typographie moderne haute lisibilité et conservation totale de la non-activation de focus (`WS_EX_NOACTIVATE`) et du déplacement à la souris.
+
 ## v0.4.25
 
 Retour de test de la v0.4.24 : la bulle apparaît enfin, le bip s'entend, le

@@ -16,11 +16,11 @@ La CI construit l'installeur Windows automatiquement. Pour déclencher une relea
 
 ```bash
 # depuis le repo, sur le commit à tester
-git tag v0.4.25
-git push origin v0.4.25
+git tag v0.4.26
+git push origin v0.4.26
 ```
 
-Puis, sur GitHub : onglet **Releases** → `v0.4.25` → télécharge **`Plume-Setup-0.4.25.exe`**.
+Puis, sur GitHub : onglet **Releases** → `v0.4.26` → télécharge **`Plume-Setup-0.4.26.exe`**.
 (Le build prend ~5–10 min. Tu peux suivre l'avancement dans l'onglet **Actions**.)
 
 ### Option B — Sans tag : artifact d'un build manuel
@@ -39,7 +39,7 @@ git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
 
-Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.25.exe`.
+Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.26.exe`.
 
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
@@ -56,7 +56,7 @@ python plume.py
 
 ## 2. Installer et lancer
 
-1. Lance `Plume-Setup-0.4.25.exe` (installation sans droits admin, dans ton profil utilisateur).
+1. Lance `Plume-Setup-0.4.26.exe` (installation sans droits admin, dans ton profil utilisateur).
 2. Ouvre **Plume** depuis le menu Démarrer. La fenêtre est une **app native** (verre dépoli, noir & blanc), pas un navigateur.
 3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt à dicter »** quand le moteur est chaud.
 
@@ -114,7 +114,7 @@ d'erreur s'affiche dans la ligne de statut. À tester dans cet ordre :
    d'échantillonnage réelle de la sortie — l'ancien enchaînement de deux notes
    rééchantillonnées grésillait. Un échec est tracé dans `debug.log`
    (`beep via sounddevice failed`).
-4. **Bulle flottante** (fenêtre native depuis la v0.4.24, noir et blanc depuis la v0.4.25) — elle doit
+4. **Bulle flottante** (fenêtre native Liquid Glass / Goutte d'eau ultra-premium depuis la v0.4.26) — elle doit
    apparaître à chaque dictée, en bas au centre, **sans voler le focus**
    (le texte se colle bien dans l'app où tu écris). Tu peux la **déplacer à la
    souris** : sa position est retenue. Rechoisir « en haut / en bas » dans les

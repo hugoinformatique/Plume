@@ -1,5 +1,10 @@
 """Native Tk floating "listening" bubble, self-contained and thread-safe.
 
+Liquid Glass / Water Droplet (Goutte d'eau) aesthetic:
+A frameless, always-on-top translucent liquid glass pill with optical depth,
+convex specular glares, volumetric refractions, a breathing 3D water-droplet bead,
+and voice-reactive fluid wave ripples.
+
 Plume's main thread belongs to ``webview.start()``, so this module owns its
 *own* Tk root running in its own daemon thread. Every public method may be
 called from any thread (hotkey listener, transcription worker, pywebview
@@ -9,12 +14,6 @@ small poller, so no Tk object is ever touched from outside that thread.
 It is deliberately defensive. If tkinter is missing, or the root cannot be
 created, or any Tk call blows up, the bubble silently becomes a no-op and the
 dictation keeps working -- a decoration must never take the app down.
-
-Replaces the old pywebview transparent-frameless secondary window
-(``ui/bubble.html``), which never actually showed up on Windows.
-
-Note: ``listening_bubble.py`` is the older sibling of this file; it is still
-used by ``tray_app.py``, which owns a Tk main loop of its own.
 """
 
 from __future__ import annotations
@@ -28,34 +27,55 @@ from ui_theme import FONT_UI, mix
 
 # --- geometry / look ---------------------------------------------------------
 CHROMA = "#010101"       # transparent-color key -> rounded corners on Windows
-BUBBLE_W = 260
-BUBBLE_H = 64
-RADIUS = 26
+BUBBLE_W = 276
+BUBBLE_H = 68
+RADIUS = 30              # organic fluid pebble / water droplet curvature
 MARGIN = 40              # distance from the top/bottom edge of the work area
 
-BAR_COUNT = 6
-BAR_W = 6
-BAR_GAP = 13
-BAR_MAX = 18.0           # half-height, keeps bars inside the pill
-EASE = 0.30              # 0..1, lower = smoother/floatier
+BAR_COUNT = 7            # 7 voice-reactive fluid wave ripples
+BAR_W = 5.0              # rounded droplet capsule width
+BAR_GAP = 11.5
+BAR_MAX = 19.0           # max amplitude (half-height, keeps bars inside the pill)
+EASE_UP = 0.38           # responsive liquid crest rise
+EASE_DOWN = 0.22         # buoyant, floaty fluid descent
 
 FRAME_MS = 33            # ~30 fps
 PUMP_MS = 30             # cross-thread command poll (cheap, not a busy loop)
 
-# Strictly achromatic, like the window (ui_theme's INK/TEXT/MUTED are slightly
-# blue-tinted, which is what made the pill read as "not the same product").
-# States are told apart by value and motion, never by hue.
-INK = "#121212"                      # pill body
-INK_SOFT = "#1C1C1C"
-TEXT = "#F2F2F2"                     # label
-MUTED = "#949494"                    # label while transcribing
-BORDER = mix(INK, "#FFFFFF", 0.14)
-TOP_LIGHT = mix(INK_SOFT, "#FFFFFF", 0.10)
-BOTTOM_EDGE = mix(INK, "#000000", 0.55)
-LIVE = "#FFFFFF"                     # "listening" bars and dot
-DIM = mix("#FFFFFF", INK, 0.55)      # "transcribing" bars: calm, dimmed
-SPIN = mix("#FFFFFF", INK, 0.25)     # "transcribing" dot
-DONE = "#FFFFFF"                     # confirmation
+# --- Liquid Glass / Water Droplet Optics Palette -----------------------------
+# Deep obsidian liquid glass with subtle midnight refraction
+SHADOW_DEPTH = "#030508"         # soft contact shadow beneath the droplet
+GLASS_BASE = "#0C0F17"           # smoked liquid glass body
+GLASS_CORE = "#121724"           # inner refracted liquid volume
+GLASS_CRESCENT = "#192233"       # top convex meniscus glare polygon
+SPECULAR_TOP = "#3B5270"         # soft top curvature highlight arc
+SPECULAR_PEAK = "#82A7CF"        # bright light streak along the top rim
+SPECULAR_CORE = "#E2F0FD"        # pure brilliance apex highlight
+CAUSTIC_BOTTOM = "#172233"       # bottom internal caustic light reflection
+MENISCUS_BORDER = "#2A384C"      # luminous glass surface tension rim
+
+# States: Liquid Aqua/Mint (Listening) -> Oceanic Vortex (Transcribing) -> Crystal Flash (Done)
+TEXT_LIVE = "#F8FAFC"            # crisp crystalline white label
+TEXT_SPIN = "#94A3B8"            # softened translucent label
+TEXT_DONE = "#FFFFFF"            # pure white confirmation
+
+# Listening state tokens
+AURA_LIVE = "#063328"            # breathing liquid aura
+LIVE_CORE = "#00F5B8"            # glowing aqua-mint water droplet bead
+LIVE_BAR_CENTER = "#00F5B8"      # center wave peaks
+LIVE_BAR_FLANK = "#14B8A6"       # outer wave bars
+
+# Transcribing state tokens
+AURA_SPIN = "#111C2E"            # oceanic halo
+SPIN_CORE = "#38BDF8"            # sapphire-cyan vortex droplet
+SPIN_CORE_ALT = "#818CF8"        # dynamic vortex phase hue
+SPIN_BAR_ACTIVE = "#38BDF8"      # traveling wave crest
+SPIN_BAR_DIM = "#1E293B"         # dimmed wave baseline
+
+# Done state tokens
+AURA_DONE = "#0369A1"            # crystalline flash aura
+DONE_CORE = "#FFFFFF"            # diamond droplet
+DONE_BAR = "#FFFFFF"             # confirmation wave
 
 
 def _rr_points(x1: float, y1: float, x2: float, y2: float, r: float) -> list[float]:
@@ -64,7 +84,7 @@ def _rr_points(x1: float, y1: float, x2: float, y2: float, r: float) -> list[flo
     Duplicating the corner anchors is the classic Tk trick: the spline then
     hugs the corners instead of rounding the whole shape into a blob.
     """
-    r = max(0.0, min(r, (x2 - x1) / 2, (y2 - y1) / 2))
+    r = max(0.0, min(r, (x2 - x1) / 2.0, (y2 - y1) / 2.0))
     return [
         x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
         x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
@@ -77,6 +97,21 @@ def _capsule_points(cx: float, cy: float, half_h: float, w: float) -> list[float
     half_w = w / 2.0
     half_h = max(half_h, half_w)
     return _rr_points(cx - half_w, cy - half_h, cx + half_w, cy + half_h, half_w)
+
+
+def _specular_crescent_points(w: float, h: float, r: float) -> list[float]:
+    """Convex top specular highlight polygon mimicking curved water drop glare."""
+    x1, y1, x2, y2 = 4.0, 3.0, w - 4.0, h * 0.42
+    cr = r * 0.85
+    return [
+        x1 + cr, y1,
+        x2 - cr, y1,
+        x2, y1 + cr * 0.4,
+        x2 - cr * 0.5, y2,
+        w / 2.0, y2 + 1.5,
+        x1 + cr * 0.5, y2,
+        x1, y1 + cr * 0.4,
+    ]
 
 
 def _work_area(fallback_w: int, fallback_h: int) -> tuple[int, int, int, int]:
@@ -97,14 +132,7 @@ def _work_area(fallback_w: int, fallback_h: int) -> tuple[int, int, int, int]:
 
 
 def _virtual_screen(fallback_w: int, fallback_h: int) -> tuple[int, int, int, int]:
-    """(left, top, right, bottom) of the whole virtual desktop.
-
-    Used to clamp a dragged position: `winfo_screenwidth/height` only covers
-    the *primary* monitor, so a bubble dropped on a second screen used to be
-    snapped back to the first one on the next dictation (and a monitor placed
-    left of or above the primary gives negative coordinates, which clamped to
-    the top-left corner).
-    """
+    """(left, top, right, bottom) of the whole virtual desktop."""
     try:
         import ctypes
 
@@ -127,9 +155,6 @@ def _no_activate(win) -> None:
         from ctypes import wintypes
 
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-        # Explicit signatures: with the default int restype a 64-bit HWND
-        # would be truncated, and the only symptom would be the pill stealing
-        # focus -- i.e. the paste landing in the wrong window.
         user32.GetParent.argtypes = [wintypes.HWND]
         user32.GetParent.restype = wintypes.HWND
         hwnd = user32.GetParent(wintypes.HWND(win.winfo_id())) or win.winfo_id()
@@ -146,13 +171,11 @@ def _no_activate(win) -> None:
         set_l(wintypes.HWND(hwnd), GWL_EXSTYLE,
               ctypes.c_void_p(int(style) | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW))
     except Exception as exc:  # noqa: BLE001
-        # Not fatal, but worth knowing about: this is what keeps the paste in
-        # the user's own window.
         debug_log(f"bubble: could not set WS_EX_NOACTIVATE: {type(exc).__name__}: {exc}")
 
 
 class FloatingBubble:
-    """A small always-on-top pill showing dictation state.
+    """A translucent liquid glass floating pill showing dictation state.
 
     Public methods are thread-safe and never raise.
     """
@@ -177,10 +200,15 @@ class FloatingBubble:
         self._root = None
         self._win = None
         self._canvas = None
-        self._bars: list = []
-        self._bar_vals: list[float] = [BAR_W / 2.0] * BAR_COUNT
+
+        # Graphical elements
+        self._dot_halo = None
         self._dot = None
+        self._dot_spec = None
         self._label = None
+        self._bars: list[tuple[int, float]] = []
+        self._bar_vals: list[float] = [BAR_W / 2.0] * BAR_COUNT
+
         self._state = "hidden"
         self._visible = False
         self._phase = 0.0
@@ -190,7 +218,7 @@ class FloatingBubble:
         self._drag: tuple[int, int] | None = None
         self._drag_moved = False
 
-        # Written from any thread, read from the Tk thread (float store is atomic).
+        # Written from any thread, read from the Tk thread (atomic float store).
         self._level = 0.0
 
     # --- thread plumbing -----------------------------------------------------
@@ -212,10 +240,6 @@ class FloatingBubble:
             self._thread.start()
         self._ready.wait(5.0)
         if not self._ready.is_set():
-            # Slow cold start (frozen build, antivirus scanning tcl/tk): don't
-            # latch this as a permanent failure -- the thread is still coming
-            # up, and the next dictation will find it ready. Latching here is
-            # precisely how a bubble ends up never appearing again.
             debug_log("bubble: Tk root not ready after 5s, skipping this one")
             return False
         return not self._dead
@@ -281,14 +305,12 @@ class FloatingBubble:
         self._post(lambda: self._do_set_state(state, text))
 
     def set_level(self, level: float) -> None:
-        # Called ~14x/s: do not queue anything, just store. The animation loop
-        # samples this value on the Tk thread.
         try:
             self._level = max(0.0, min(1.0, float(level)))
         except Exception:
             self._level = 0.0
 
-    def flash_done(self, text: str = "Collé", ms: int = 900) -> None:
+    def flash_done(self, text: str = "Collé", ms: int = 950) -> None:
         self._post(lambda: self._do_flash_done(text, ms))
 
     def hide(self) -> None:
@@ -323,14 +345,14 @@ class FloatingBubble:
             win.attributes("-alpha", self._alpha)
         except Exception:
             pass
-        canvas_bg = INK
+        canvas_bg = GLASS_BASE
         try:
             win.configure(bg=CHROMA)
             win.attributes("-transparentcolor", CHROMA)
             canvas_bg = CHROMA
         except Exception:
             try:
-                win.configure(bg=INK)
+                win.configure(bg=GLASS_BASE)
             except Exception:
                 pass
         win.withdraw()
@@ -350,33 +372,83 @@ class FloatingBubble:
         return True
 
     def _build(self, canvas) -> None:
+        """Construct multi-layer liquid glass / water drop optics."""
         cy = BUBBLE_H / 2.0
+        cx_mid = BUBBLE_W / 2.0
 
-        # Fake depth: a darker sliver peeking under the body ...
-        canvas.create_polygon(_rr_points(2, 5, BUBBLE_W - 2, BUBBLE_H - 1, RADIUS),
-                              smooth=True, fill=BOTTOM_EDGE, outline="")
-        # ... the glassy body itself ...
-        canvas.create_polygon(_rr_points(2, 2, BUBBLE_W - 2, BUBBLE_H - 3, RADIUS),
-                              smooth=True, fill=INK, outline="")
-        # ... a 1 px lighter line along the top (light comes from above) ...
-        canvas.create_line(2 + RADIUS * 0.7, 3, BUBBLE_W - 2 - RADIUS * 0.7, 3,
-                           fill=TOP_LIGHT, width=1)
-        # ... and a hairline white-ish border at low opacity.
-        canvas.create_polygon(_rr_points(2, 2, BUBBLE_W - 2, BUBBLE_H - 3, RADIUS),
-                              smooth=True, fill="", outline=BORDER, width=1)
+        # 1. Ambient Contact Shadow beneath the droplet
+        canvas.create_polygon(
+            _rr_points(2, 6, BUBBLE_W - 2, BUBBLE_H, RADIUS),
+            smooth=True, fill=SHADOW_DEPTH, outline="",
+        )
 
-        self._dot = canvas.create_oval(22, cy - 5, 32, cy + 5, fill=LIVE, outline="")
-        self._label = canvas.create_text(46, cy - 1, anchor="w", fill=TEXT,
-                                         font=(FONT_UI, 11, "bold"), text="")
+        # 2. Smoked Liquid Glass Body
+        canvas.create_polygon(
+            _rr_points(2, 2, BUBBLE_W - 2, BUBBLE_H - 3, RADIUS),
+            smooth=True, fill=GLASS_BASE, outline="",
+        )
 
+        # 3. Inner Liquid Volume / Refracted Depth Core
+        canvas.create_polygon(
+            _rr_points(4, 4, BUBBLE_W - 4, BUBBLE_H - 5, RADIUS - 2),
+            smooth=True, fill=GLASS_CORE, outline="",
+        )
+
+        # 4. Top Convex Specular Glare (Signature Water Droplet Curvature)
+        canvas.create_polygon(
+            _specular_crescent_points(BUBBLE_W, BUBBLE_H, RADIUS),
+            smooth=True, fill=GLASS_CRESCENT, outline="",
+        )
+
+        # 5. Specular Reflection Lines along the Upper Arc
+        canvas.create_line(
+            RADIUS * 0.7, 3.5, BUBBLE_W - RADIUS * 0.7, 3.5,
+            fill=SPECULAR_TOP, width=1.5, capstyle="round",
+        )
+        canvas.create_line(
+            cx_mid - 45, 3.5, cx_mid + 45, 3.5,
+            fill=SPECULAR_PEAK, width=1.2, capstyle="round",
+        )
+        canvas.create_line(
+            cx_mid - 15, 3.5, cx_mid + 15, 3.5,
+            fill=SPECULAR_CORE, width=1.0, capstyle="round",
+        )
+
+        # 6. Bottom Caustic Refraction (Internal Lens Reflection)
+        canvas.create_line(
+            RADIUS * 0.9, BUBBLE_H - 4.5, BUBBLE_W - RADIUS * 0.9, BUBBLE_H - 4.5,
+            fill=CAUSTIC_BOTTOM, width=1.2, capstyle="round",
+        )
+
+        # 7. Meniscus Surface Tension Rim (Crisp Glass Edge)
+        canvas.create_polygon(
+            _rr_points(2, 2, BUBBLE_W - 2, BUBBLE_H - 3, RADIUS),
+            smooth=True, fill="", outline=MENISCUS_BORDER, width=1,
+        )
+
+        # 8. Liquid Status Droplet Bead (Glow Aura + Fluid Core + 3D Specular Highlight)
+        self._dot_halo = canvas.create_oval(19, cy - 8, 37, cy + 8, fill=AURA_LIVE, outline="")
+        self._dot = canvas.create_oval(23, cy - 5, 33, cy + 5, fill=LIVE_CORE, outline="")
+        self._dot_spec = canvas.create_oval(25, cy - 3.5, 27.5, cy - 1.0, fill="#FFFFFF", outline="")
+
+        # 9. Modern High-Contrast Typography
+        self._label = canvas.create_text(
+            48, cy - 0.5, anchor="w", fill=TEXT_LIVE,
+            font=(FONT_UI, 11, "bold"), text="",
+        )
+
+        # 10. 7 Voice-Reactive Fluid Wave Ripples (Droplet Equalizer)
         self._bars = []
         total = (BAR_COUNT - 1) * BAR_GAP
         base_x = BUBBLE_W - 24 - total
         for i in range(BAR_COUNT):
             cx = base_x + i * BAR_GAP
+            # Dynamic initial gradient: Center bars are luminous mint, flanking bars are teal
+            dist_from_center = abs(i - (BAR_COUNT - 1) / 2.0)
+            bar_fill = mix(LIVE_BAR_CENTER, LIVE_BAR_FLANK, dist_from_center / 3.0)
             item = canvas.create_polygon(
                 _capsule_points(cx, cy, BAR_W / 2.0, BAR_W),
-                smooth=True, fill=LIVE, outline="",
+                smooth=True, fill=bar_fill, outline="",
             )
             self._bars.append((item, cx))
 
@@ -397,9 +469,6 @@ class FloatingBubble:
             x = left + (right - left - BUBBLE_W) // 2
             y = top + MARGIN if self.position == "top" else bottom - BUBBLE_H - MARGIN
 
-        # Clamp to the whole virtual desktop, not just the primary monitor: a
-        # position saved on a screen that is no longer attached must not make
-        # the bubble disappear, but a second attached screen must stay valid.
         vleft, vtop, vright, vbottom = _virtual_screen(sw, sh)
         x = max(vleft, min(x, vright - BUBBLE_W))
         y = max(vtop, min(y, vbottom - BUBBLE_H))
@@ -432,14 +501,31 @@ class FloatingBubble:
         self._state = state
         if self._canvas is None:
             return
-        color = {"listening": LIVE, "transcribing": DIM, "done": DONE}[state]
-        dot = {"listening": LIVE, "transcribing": SPIN, "done": DONE}[state]
-        for item, _cx in self._bars:
-            self._canvas.itemconfigure(item, fill=color)
-        self._canvas.itemconfigure(self._dot, fill=dot)
-        self._canvas.itemconfigure(
-            self._label, fill=MUTED if state == "transcribing" else TEXT
-        )
+
+        if state == "listening":
+            self._canvas.itemconfigure(self._dot_halo, fill=AURA_LIVE)
+            self._canvas.itemconfigure(self._dot, fill=LIVE_CORE)
+            self._canvas.itemconfigure(self._dot_spec, fill="#FFFFFF")
+            self._canvas.itemconfigure(self._label, fill=TEXT_LIVE)
+            for i, (item, _cx) in enumerate(self._bars):
+                dist = abs(i - (BAR_COUNT - 1) / 2.0)
+                color = mix(LIVE_BAR_CENTER, LIVE_BAR_FLANK, dist / 3.0)
+                self._canvas.itemconfigure(item, fill=color)
+        elif state == "transcribing":
+            self._canvas.itemconfigure(self._dot_halo, fill=AURA_SPIN)
+            self._canvas.itemconfigure(self._dot, fill=SPIN_CORE)
+            self._canvas.itemconfigure(self._dot_spec, fill="#FFFFFF")
+            self._canvas.itemconfigure(self._label, fill=TEXT_SPIN)
+            for item, _cx in self._bars:
+                self._canvas.itemconfigure(item, fill=SPIN_BAR_DIM)
+        elif state == "done":
+            self._canvas.itemconfigure(self._dot_halo, fill=AURA_DONE)
+            self._canvas.itemconfigure(self._dot, fill=DONE_CORE)
+            self._canvas.itemconfigure(self._dot_spec, fill="#FFFFFF")
+            self._canvas.itemconfigure(self._label, fill=TEXT_DONE)
+            for item, _cx in self._bars:
+                self._canvas.itemconfigure(item, fill=DONE_BAR)
+
         if text:
             self._canvas.itemconfigure(self._label, text=text)
 
@@ -451,8 +537,6 @@ class FloatingBubble:
             self._do_set_state("done", text or "Collé")
             if not self._visible:
                 self._place()
-                # Reset the opacity a previous fade-out may have left near 0,
-                # otherwise the confirmation shows up invisible.
                 self._alpha = 0.96
                 try:
                     self._win.attributes("-alpha", self._alpha)
@@ -533,7 +617,6 @@ class FloatingBubble:
         self._drag_moved = False
         if not moved or self._win is None:
             return
-        # Debounced by construction: only the drag *end* notifies the caller.
         try:
             x = int(self._win.winfo_x())
             y = int(self._win.winfo_y())
@@ -546,56 +629,105 @@ class FloatingBubble:
             except Exception as exc:
                 debug_log(f"bubble: on_move callback failed ({exc!r})")
 
-    # --- Tk thread: animation ------------------------------------------------
+    # --- Tk thread: animation & fluid dynamics -------------------------------
     def _targets(self) -> list[float]:
         floor = BAR_W / 2.0
         if self._state == "listening":
             level = self._level
             out = []
+            center_idx = (BAR_COUNT - 1) / 2.0
             for i in range(BAR_COUNT):
-                shimmer = 0.55 + 0.45 * math.sin(self._phase * 1.3 + i * 0.7)
-                # Idle still breathes a little instead of freezing flat.
-                breath = 1.2 + 0.9 * (0.5 + 0.5 * math.sin(self._phase * 0.9 + i * 0.5))
-                out.append(floor + breath + level * BAR_MAX * shimmer)
+                # Ripple dispersion across fluid surface
+                ripple_phase = self._phase * 1.5 + (i - center_idx) * 0.6
+                wave_shimmer = 0.45 + 0.55 * math.sin(ripple_phase)
+
+                # Ambient living liquid breath (calm water surface)
+                idle_breath = 1.2 + 0.9 * (0.5 + 0.5 * math.sin(self._phase * 0.8 + i * 0.45))
+
+                # Fluid acoustic crest (parabolic center concentration)
+                dist = abs(i - center_idx) / center_idx
+                center_weight = 1.0 - 0.28 * (dist ** 2)
+                voice_surge = level * BAR_MAX * wave_shimmer * center_weight
+
+                out.append(floor + idle_breath + voice_surge)
             return out
+
         if self._state == "transcribing":
-            # Calm left-to-right sweep.
+            # Silky continuous liquid traveling wave
             out = []
-            head = (self._phase * 0.9) % (BAR_COUNT + 2) - 1
+            head = (self._phase * 0.85) % (BAR_COUNT + 2) - 1
             for i in range(BAR_COUNT):
                 d = abs(i - head)
-                out.append(floor + 1.5 + 10.0 * math.exp(-(d * d) / 1.1))
+                out.append(floor + 1.5 + 11.0 * math.exp(-(d * d) / 1.3))
             return out
+
         if self._state == "done":
-            return [floor + 2.0] * BAR_COUNT
+            return [floor + 2.5] * BAR_COUNT
+
         return [floor] * BAR_COUNT
 
     def _tick(self) -> None:
         self._anim_id = None
         if not self._visible or self._canvas is None:
             return
-        self._phase += 0.22
+        self._phase += 0.20
         cy = BUBBLE_H / 2.0
 
         try:
+            # 1. Animate the Liquid Droplet Bead
             if self._state == "transcribing":
-                # Small orbit: reads as "processing", not "listening".
-                r, pr = 3.0, 4.0
-                ox = 27 + r * math.cos(self._phase * 2.2)
-                oy = cy + r * math.sin(self._phase * 2.2)
-            else:
-                pr = 4.5 + 1.8 * (0.5 + 0.5 * math.sin(self._phase * 1.7))
-                if self._state == "done":
-                    pr = 6.0
-                ox, oy = 27.0, cy
-            self._canvas.coords(self._dot, ox - pr, oy - pr, ox + pr, oy + pr)
+                # Oceanic liquid vortex orbit
+                r = 2.8
+                ox = 28.0 + r * math.cos(self._phase * 2.0)
+                oy = cy + r * math.sin(self._phase * 2.0)
+                pr = 4.0
+                halo_r = pr + 3.5
 
+                # Fluid chromatic shift during vortex
+                hue_t = 0.5 + 0.5 * math.sin(self._phase * 1.5)
+                vortex_color = mix(SPIN_CORE, SPIN_CORE_ALT, hue_t)
+                self._canvas.itemconfigure(self._dot, fill=vortex_color)
+
+            elif self._state == "done":
+                # Crystalline confirmation flash
+                pr = 5.8
+                halo_r = 9.0
+                ox, oy = 28.0, cy
+            else:
+                # Listening: breathing liquid droplet + reactive aura
+                pr = 4.4 + 1.4 * (0.5 + 0.5 * math.sin(self._phase * 1.6)) + self._level * 1.6
+                halo_r = pr + 3.2 + self._level * 4.5
+                ox, oy = 28.0, cy
+
+            # Update Droplet + Aura + Specular Pinpoint Coords
+            self._canvas.coords(self._dot_halo, ox - halo_r, oy - halo_r, ox + halo_r, oy + halo_r)
+            self._canvas.coords(self._dot, ox - pr, oy - pr, ox + pr, oy + pr)
+            spec_r = pr * 0.32
+            self._canvas.coords(
+                self._dot_spec,
+                ox - pr * 0.55 - spec_r, oy - pr * 0.55 - spec_r,
+                ox - pr * 0.55 + spec_r, oy - pr * 0.55 + spec_r,
+            )
+
+            # 2. Animate Fluid Wave Ripples (Droplet Equalizer)
             targets = self._targets()
+            head = (self._phase * 0.85) % (BAR_COUNT + 2) - 1
             for i, (item, cx) in enumerate(self._bars):
-                self._bar_vals[i] += (targets[i] - self._bar_vals[i]) * EASE
+                target = targets[i]
+                # Viscous fluid easing: fast crest rise, buoyant fluid descent
+                ease = EASE_UP if target > self._bar_vals[i] else EASE_DOWN
+                self._bar_vals[i] += (target - self._bar_vals[i]) * ease
                 self._canvas.coords(
                     item, *_capsule_points(cx, cy, self._bar_vals[i], BAR_W)
                 )
+
+                # In transcribing mode, highlight the wave crest dynamically
+                if self._state == "transcribing":
+                    d = abs(i - head)
+                    crest_t = max(0.0, 1.0 - d / 1.5)
+                    bar_color = mix(SPIN_BAR_DIM, SPIN_BAR_ACTIVE, crest_t)
+                    self._canvas.itemconfigure(item, fill=bar_color)
+
         except Exception as exc:
             debug_log(f"bubble: animation stopped ({exc!r})")
             return
@@ -607,8 +739,8 @@ class FloatingBubble:
 
     def _fade_out(self) -> None:
         self._hide_id = None
-        self._alpha -= 0.16
-        if self._alpha <= 0.05 or self._win is None:
+        self._alpha -= 0.14
+        if self._alpha <= 0.04 or self._win is None:
             self._do_hide()
             return
         try:
