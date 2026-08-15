@@ -36,9 +36,12 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.24"
+APP_VERSION = "0.4.25"
+GITHUB_REPO_URL = "https://github.com/hugoinformatique/Plume"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
+GITHUB_RELEASES_LATEST_URL = f"{GITHUB_REPO_URL}/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
+AUTO_UPDATE_MAX_BYTES = 200 * 1024 * 1024  # above this, ask before downloading
 
 
 def resource_dir() -> str:
@@ -74,16 +77,57 @@ def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
 
-def latest_release_info() -> dict:
+def _release_via_redirect() -> dict:
+    """Latest release without touching the REST API.
+
+    api.github.com allows 60 unauthenticated calls per hour *per IP* -- easily
+    exhausted on a shared/corporate connection, and the app then reported
+    "rate limit exceeded" and refused to update at all. github.com itself has
+    no such quota: /releases/latest simply redirects to /releases/tag/vX.Y.Z,
+    and the installer asset name is deterministic (INSTALLER_RE), so the whole
+    check can be done with one redirect.
+    """
     response = requests.get(
-        GITHUB_RELEASES_URL,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": f"Plume/{APP_VERSION}",
-        },
+        GITHUB_RELEASES_LATEST_URL,
+        headers={"User-Agent": f"Plume/{APP_VERSION}"},
         timeout=8,
+        allow_redirects=True,
     )
     response.raise_for_status()
+    match = re.search(r"/releases/tag/(?P<tag>[^/?#]+)", response.url)
+    if not match:
+        raise RuntimeError(f"tag introuvable dans {response.url}")
+    tag = match.group("tag")
+    latest_version = tag.lstrip("v")
+    asset = f"Plume-Setup-{latest_version}.exe"
+    return {
+        "available": version_key(latest_version) > version_key(APP_VERSION),
+        "current_version": APP_VERSION,
+        "latest_version": latest_version,
+        "tag_name": tag,
+        "release_url": response.url,
+        "asset_name": asset,
+        "asset_size": None,
+        "download_url": f"{GITHUB_REPO_URL}/releases/download/{tag}/{asset}",
+    }
+
+
+def latest_release_info() -> dict:
+    try:
+        response = requests.get(
+            GITHUB_RELEASES_URL,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": f"Plume/{APP_VERSION}",
+            },
+            timeout=8,
+        )
+        response.raise_for_status()
+    except Exception as exc:  # noqa: BLE001
+        # 403/429 = quota; anything else may be a proxy filtering the API host.
+        # Either way the redirect route is worth a try before giving up.
+        _debug_log(f"release API unavailable ({exc}); trying the redirect route")
+        return _release_via_redirect()
     release = response.json()
     tag = str(release.get("tag_name") or "")
     latest_version = tag.lstrip("v") or APP_VERSION
@@ -112,15 +156,34 @@ def latest_release_info() -> dict:
     }
 
 
+def resolve_model_path(model: str) -> Path:
+    """Absolute location of an OpenVINO model directory.
+
+    A relative path (the default `models\\openvino\\whisper-small`) can mean
+    two things: a model the user converted next to the app, or the one shipped
+    inside the installer. Look next to the working directory first, then in the
+    bundle (`sys._MEIPASS` when frozen), and always hand the engine an absolute
+    path so it cannot resolve it differently than this check did.
+    """
+    path = Path(model or "")
+    if path.is_absolute():
+        return path
+    for base in (Path.cwd(), Path(resource_dir())):
+        candidate = base / path
+        if candidate.exists():
+            return candidate
+    return Path.cwd() / path
+
+
 def profile_blocker(profile: str, model: str) -> str | None:
     """Why this profile cannot run here, in French, or None if it can.
 
-    The OpenVINO profiles (NPU / iGPU / OpenVINO-CPU) need two things the
-    installed build does not ship: the `openvino-genai` runtime (an optional
-    dependency, see requirements-openvino.txt) and a model *converted* to the
-    OpenVINO format on this machine. Selecting one used to persist a config
-    the engine then failed to load on every start -- an unrecoverable state
-    from inside the UI. Refuse up front and say what's missing instead.
+    The OpenVINO profiles (NPU / iGPU / OpenVINO-CPU) need the `openvino-genai`
+    runtime and a model *converted* to the OpenVINO IR format. Since v0.4.25
+    the installer ships both, so this normally passes -- but a run from source
+    (or a build without them) must not let the UI persist a config the engine
+    will then fail to load at every start, an unrecoverable state from inside
+    the app. Refuse up front and say what is missing instead.
     """
     if not profile.startswith("ov-"):
         return None
@@ -130,12 +193,7 @@ def profile_blocker(profile: str, model: str) -> str | None:
         return ("Ce profil demande le moteur OpenVINO, absent de cette installation. "
                 "Installe-le (requirements-openvino.txt) puis convertis un modèle "
                 "avant de le sélectionner.")
-    # Resolve exactly like the engine does (OpenVINOBackend takes Path(model),
-    # i.e. relative to the working directory) so the check and the loader can
-    # never disagree about which directory they are talking about.
-    path = Path(model or "")
-    if not path.is_absolute():
-        path = Path.cwd() / path
+    path = resolve_model_path(model)
     if not path.exists():
         return (f"Modèle OpenVINO introuvable : {path}. Convertis-en un "
                 "(optimum-cli export openvino …) puis indique son dossier.")
@@ -257,6 +315,7 @@ class PlumeApp:
         self.tray = None
         self.hotkeys = None
         self._hotkey_lock = threading.Lock()
+        self._beep_lock = threading.Lock()
         self.recording = False
         self.worker: threading.Thread | None = None
         self._level_stop = threading.Event()
@@ -277,6 +336,12 @@ class PlumeApp:
         with self.engine_lock:
             if self.engine is None or key != self._engine_key:
                 lang = None if str(language).lower() == "auto" else language
+                if backend == "openvino":
+                    # Hand the backend the same absolute directory the
+                    # availability check validated -- it resolves plain
+                    # Path(model) against the working directory, which is not
+                    # where the bundled model lives in a frozen build.
+                    model = str(resolve_model_path(model))
                 engine = DictationEngine(model_name=model, device=device,
                                          compute_type=compute, language=lang, backend=backend)
                 engine.load()
@@ -289,7 +354,12 @@ class PlumeApp:
         try:
             self._get_engine()
             self._set_status("Prêt à dicter", "Prêt")
-        except Exception as exc:  # noqa: BLE001
+        except BaseException as exc:  # noqa: BLE001
+            # BaseException on purpose: openvino's import helper calls
+            # sys.exit() when it cannot find its own DLL directory, and a bare
+            # `except Exception` left the app stuck on "Chargement du modèle…"
+            # forever with nothing on screen.
+            _debug_log(f"engine load FAILED: {type(exc).__name__}: {exc}")
             self._set_status(f"Erreur moteur : {exc}", "Erreur")
 
     # ---- JS bridge ----------------------------------------------------------
@@ -428,16 +498,24 @@ class PlumeApp:
         # which is silent on a lot of machines: that is why v0.4.23 still had
         # no sound. winsound stays as a fallback.
         try:
-            import numpy as np
             import sounddevice as sd
 
-            rate = 44100
-            # Two-tone chirp, rising to start and falling to stop: recognizable
-            # without looking at the screen, and clearly "an app", not Windows.
-            tones = (784.0, 1046.5) if kind == "start" else (880.0, 587.33)
-            dur = 0.075
-            wave = np.concatenate([self._tone(f, dur, rate) for f in tones])
-            sd.play(wave * 0.22, samplerate=rate, blocking=True)
+            # Use the output device's own sample rate rather than forcing
+            # 44100: the resampling that WASAPI does otherwise is what made
+            # the cue sound gritty. Two separate tones spliced together were
+            # also audible as a stutter -- one clean note per event instead.
+            rate = 48000
+            try:
+                default_out = sd.default.device[1]
+                info = sd.query_devices(default_out, "output")
+                rate = int(info["default_samplerate"]) or rate
+            except Exception:  # noqa: BLE001 - fall back to 48 kHz
+                pass
+            freq = 1046.5 if kind == "start" else 659.25  # C6 up, E5 down
+            wave = self._tone(freq, 0.11, rate) * 0.25
+            with self._beep_lock:
+                sd.stop()  # never let two cues overlap into a warble
+                sd.play(wave, samplerate=rate, blocking=True)
             return
         except Exception as exc:  # noqa: BLE001
             _debug_log(f"beep via sounddevice failed ({kind}): {exc}")
@@ -466,10 +544,15 @@ class PlumeApp:
         count = max(2, int(rate * seconds))
         t = np.linspace(0.0, seconds, count, endpoint=False)
         wave = np.sin(2.0 * np.pi * freq * t).astype("float32")
-        edge = max(1, min(int(rate * 0.006), count // 2))
-        ramp = (1.0 - np.cos(np.linspace(0.0, np.pi, edge))) / 2.0
-        wave[:edge] *= ramp
-        wave[-edge:] *= ramp[::-1]
+        # Long-ish raised-cosine attack and a decay over most of the note: a
+        # short hard edge clicks, and a flat sine that stops dead sounds like a
+        # glitch rather than a cue.
+        attack = max(1, min(int(rate * 0.012), count // 2))
+        ramp = ((1.0 - np.cos(np.linspace(0.0, np.pi, attack))) / 2.0).astype("float32")
+        wave[:attack] *= ramp
+        decay = max(1, min(int(rate * 0.06), count - attack))
+        fade = ((1.0 + np.cos(np.linspace(0.0, np.pi, decay))) / 2.0).astype("float32")
+        wave[count - decay:] *= fade
         return wave
 
     def _start(self) -> None:
@@ -694,21 +777,47 @@ class PlumeApp:
 
     # ---- updates -----------------------------------------------------------
     def _auto_update_check(self) -> None:
-        """Startup check that doesn't just notify: if a newer version is on
-        GitHub Releases, download and install it right away, no click
-        needed."""
+        """Startup check that installs the update by itself -- unless it is a
+        heavy one.
+
+        Now that the installer carries the OpenVINO runtime and a converted
+        model, it weighs hundreds of MB. Pulling that down unannounced at every
+        launch following a release is not something to do to someone's
+        connection: above the threshold we only surface the update bar and let
+        them press the button.
+        """
         info = self.check_for_update(notify=True)
-        if info.get("available"):
-            self._download_and_launch_update()
+        if not info.get("available"):
+            return
+        size = info.get("asset_size") or 0
+        # An *unknown* size counts as too big: the redirect route (used exactly
+        # when GitHub's API is rate-limited) cannot report one, and that must
+        # not become the loophole through which a 350 MB installer downloads
+        # itself unannounced.
+        if not size or size > AUTO_UPDATE_MAX_BYTES:
+            weight = f" ({size / (1024 * 1024):.0f} Mo)" if size else ""
+            _debug_log(f"update {info.get('latest_version')}{weight}: waiting for a click")
+            self._set_update_ui({
+                **info,
+                "message": f"Mise à jour {info.get('latest_version')} disponible{weight} — "
+                           "clique sur « Mettre à jour » quand tu veux.",
+            })
+            return
+        self._download_and_launch_update()
 
     def check_for_update(self, notify: bool = True) -> dict:
         try:
             info = latest_release_info()
             self._update_info = info if info.get("available") else None
         except Exception as exc:  # noqa: BLE001
-            message = "Release GitHub inaccessible. Le dépôt Plume est probablement privé."
-            if "404" not in str(exc):
-                message = f"Recherche de mise à jour impossible : {exc}"
+            text = str(exc)
+            message = f"Recherche de mise à jour impossible : {exc}"
+            if "404" in text:
+                message = "Release GitHub inaccessible. Le dépôt Plume est probablement privé."
+            elif "403" in text or "429" in text or "rate limit" in text.lower():
+                message = (f"GitHub limite temporairement les requêtes. Réessaie plus tard, "
+                           f"ou télécharge l'installeur : {GITHUB_RELEASES_LATEST_URL}")
+            _debug_log(f"update check failed: {exc}")
             info = {
                 "available": False,
                 "current_version": APP_VERSION,

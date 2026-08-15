@@ -20,7 +20,7 @@ The Windows build produces two artifacts:
 The installer file name is:
 
 ```text
-Plume-Setup-0.4.24.exe
+Plume-Setup-0.4.25.exe
 ```
 
 ## Build On GitHub
@@ -33,10 +33,19 @@ The repo includes a GitHub Actions workflow:
 
 It runs on Windows and builds:
 
-1. Python dependencies.
-2. PyInstaller app folder.
-3. Inno Setup installer.
-4. Downloadable GitHub Actions artifacts.
+1. Python dependencies, including the OpenVINO **runtime**
+   (`requirements-openvino-runtime.txt`).
+2. A Whisper `small` model converted to OpenVINO int8 IR, in a throwaway
+   virtualenv so that `optimum-intel` and torch never end up in the bundle.
+3. PyInstaller app folder.
+4. Inno Setup installer.
+5. Downloadable GitHub Actions artifacts.
+
+Since v0.4.25 the installer therefore carries the OpenVINO runtime and the
+converted model, so the NPU / iGPU profiles work on a fresh machine with no
+extra install and no conversion step. That is what makes the download large
+(hundreds of MB rather than ~65 MB) — a deliberate trade for an app whose
+whole point is running with nothing external.
 
 ## Build Manually On Windows
 
@@ -58,14 +67,14 @@ Outputs:
 
 ```text
 dist\Plume\
-dist\installer\Plume-Setup-0.4.24.exe
+dist\installer\Plume-Setup-0.4.25.exe
 ```
 
 ## User Install Flow
 
 For a normal user:
 
-1. Download `Plume-Setup-0.4.24.exe`.
+1. Download `Plume-Setup-0.4.25.exe`.
 2. Run the installer.
 3. Launch `Plume`.
 4. Choose a model.

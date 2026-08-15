@@ -5,6 +5,48 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.25
+
+Retour de test de la v0.4.24 : la bulle apparaît enfin, le bip s'entend, le
+logo est le bon. Restaient la couleur de la bulle, la qualité du son, la mise
+à jour bloquée par GitHub, les profils NPU inutilisables, et l'interface.
+
+- **La bulle repasse en noir et blanc.** Elle héritait de l'accent turquoise de
+  `ui_theme` — hors direction artistique. Elle distingue désormais ses états
+  par la valeur et le mouvement (blanc plein en écoute, gris atténué et
+  balayage en transcription), jamais par la teinte.
+- **Le bip ne grésille plus.** Il était fabriqué à 44,1 kHz imposés et
+  rééchantillonné par Windows, et fait de deux notes collées bout à bout —
+  d'où le hoquet. Une seule note, à la fréquence d'échantillonnage réelle de
+  la sortie, avec attaque et extinction longues ; deux bips ne peuvent plus se
+  chevaucher.
+- **Mise à jour : plus de blocage par quota GitHub.** L'API GitHub anonyme est
+  limitée à 60 requêtes par heure et par adresse IP — d'où le « rate limit »
+  qui a obligé à télécharger l'installeur à la main. En cas d'échec, la
+  recherche passe maintenant par `github.com/…/releases/latest`, une simple
+  redirection sans quota, dont on déduit la version et l'URL de l'installeur.
+  Si tout échoue, le message donne le lien direct.
+- **Les profils NPU / iGPU sont utilisables tels quels.** L'installeur embarque
+  désormais le runtime OpenVINO **et** un `whisper-small` déjà converti en
+  int8 : plus rien à installer, plus de conversion à faire. La conversion est
+  faite en CI dans un environnement séparé, pour que `optimum-intel` et torch
+  (plusieurs Go) n'entrent jamais dans l'exécutable. Contrepartie assumée :
+  l'installeur passe de ~65 Mo à plusieurs centaines de Mo — et comme il
+  serait malvenu de télécharger ça tout seul à chaque lancement, une mise à
+  jour de plus de 200 Mo (ou dont la taille est inconnue, ce qui est le cas
+  par la route de secours ci-dessus) est proposée au lieu d'être installée
+  d'office.
+  (Le NPU peut encore échouer au chargement : conflit de versions en amont
+  documenté dans `requirements-openvino.txt` ; l'iGPU n'est pas concerné.)
+- **Interface.** Le champ de recherche de l'historique occupait la moitié de la
+  fenêtre : conflit de règles CSS, `.field{flex:1}` (écrit pour le formulaire
+  horizontal des mots) l'emportait sur `.histsearch{flex:none}`. Il fait
+  maintenant 37 px et la liste prend tout le reste. Passe générale par
+  ailleurs : palette rendue strictement achromatique (elle tirait sur le
+  bleu), contrôles des réglages alignés sur une largeur commune, panneaux qui
+  défilent au lieu de se comprimer, et micro remis au centre de l'écran de
+  dictée.
+
 ## v0.4.24
 
 Retour de test de la v0.4.23 : push-to-talk, changement de raccourci et

@@ -1,0 +1,14 @@
+# OpenVINO *runtime* only -- what the packaged app needs to actually run the
+# NPU / iGPU / OpenVINO-CPU profiles. Installed in the build environment so
+# PyInstaller bundles it (see packaging/pyinstaller/Plume.spec).
+#
+# Deliberately excludes optimum-intel / nncf: those convert models and pull in
+# torch (multi-GB), which has no business inside the shipped exe. The
+# conversion runs in a throwaway virtualenv during CI -- see
+# .github/workflows/windows-installer.yml -- and only its output (the IR
+# files under models/openvino/) is bundled.
+#
+# For a machine where you convert models yourself, use requirements-openvino.txt.
+openvino>=2025.0
+openvino-genai>=2025.0
+openvino-tokenizers>=2025.0

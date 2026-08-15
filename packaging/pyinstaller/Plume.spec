@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+import importlib.util
 import os
 
 from PyInstaller.utils.hooks import (
@@ -45,6 +46,37 @@ for pkg in ("webview", "clr_loader"):
     binaries += b
     hiddenimports += h
 
+# OpenVINO runtime (NPU / iGPU / OpenVINO-CPU profiles). Optional: a build
+# without these packages installed simply ships without them, and the app
+# refuses those profiles with an explanatory message instead of crashing.
+# `optimum-intel` (the *conversion* tool) is deliberately NOT installed in the
+# build environment -- it drags in torch, which PyInstaller would then try to
+# bundle, for no runtime benefit. The model is converted in a separate
+# environment during CI and copied in below.
+#
+# PLUME_REQUIRE_OPENVINO=1 (set by CI) turns "missing" into a build failure:
+# collect_all() only *warns* for an absent package and returns empty lists, so
+# without this a botched install would produce a green build and a released
+# installer whose NPU/iGPU profiles are dead.
+require_openvino = os.environ.get("PLUME_REQUIRE_OPENVINO") == "1"
+for pkg in ("openvino", "openvino_genai", "openvino_tokenizers"):
+    if importlib.util.find_spec(pkg) is None:
+        if require_openvino:
+            raise SystemExit(f"PLUME_REQUIRE_OPENVINO=1 but {pkg} is not installed")
+        continue
+    d, b, h = collect_all(pkg)
+    datas += d
+    binaries += b
+    hiddenimports += h
+
+# A pre-converted Whisper model, so the OpenVINO profiles work out of the box
+# instead of asking the user for an optimum-cli export.
+ov_model = os.path.join(ROOT, "models", "openvino")
+if os.path.isdir(ov_model):
+    datas += [(ov_model, os.path.join("models", "openvino"))]
+elif require_openvino:
+    raise SystemExit(f"PLUME_REQUIRE_OPENVINO=1 but no converted model in {ov_model}")
+
 # Bundle the web UI.
 datas += [(os.path.join(ROOT, "ui"), "ui")]
 
@@ -80,7 +112,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -94,7 +126,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name="Plume",
 )

@@ -24,7 +24,7 @@ import queue
 import threading
 
 from config import debug_log
-from ui_theme import ACCENT, BRAND, FONT_UI, INK, INK_SOFT, MUTED, TEXT, mix
+from ui_theme import FONT_UI, mix
 
 # --- geometry / look ---------------------------------------------------------
 CHROMA = "#010101"       # transparent-color key -> rounded corners on Windows
@@ -42,11 +42,20 @@ EASE = 0.30              # 0..1, lower = smoother/floatier
 FRAME_MS = 33            # ~30 fps
 PUMP_MS = 30             # cross-thread command poll (cheap, not a busy loop)
 
+# Strictly achromatic, like the window (ui_theme's INK/TEXT/MUTED are slightly
+# blue-tinted, which is what made the pill read as "not the same product").
+# States are told apart by value and motion, never by hue.
+INK = "#121212"                      # pill body
+INK_SOFT = "#1C1C1C"
+TEXT = "#F2F2F2"                     # label
+MUTED = "#949494"                    # label while transcribing
 BORDER = mix(INK, "#FFFFFF", 0.14)
 TOP_LIGHT = mix(INK_SOFT, "#FFFFFF", 0.10)
 BOTTOM_EDGE = mix(INK, "#000000", 0.55)
-DIM = mix(ACCENT, INK, 0.55)         # "transcribing" bars: calm, dimmed
-SPIN = mix(BRAND, ACCENT, 0.65)      # "transcribing" dot
+LIVE = "#FFFFFF"                     # "listening" bars and dot
+DIM = mix("#FFFFFF", INK, 0.55)      # "transcribing" bars: calm, dimmed
+SPIN = mix("#FFFFFF", INK, 0.25)     # "transcribing" dot
+DONE = "#FFFFFF"                     # confirmation
 
 
 def _rr_points(x1: float, y1: float, x2: float, y2: float, r: float) -> list[float]:
@@ -356,7 +365,7 @@ class FloatingBubble:
         canvas.create_polygon(_rr_points(2, 2, BUBBLE_W - 2, BUBBLE_H - 3, RADIUS),
                               smooth=True, fill="", outline=BORDER, width=1)
 
-        self._dot = canvas.create_oval(22, cy - 5, 32, cy + 5, fill=ACCENT, outline="")
+        self._dot = canvas.create_oval(22, cy - 5, 32, cy + 5, fill=LIVE, outline="")
         self._label = canvas.create_text(46, cy - 1, anchor="w", fill=TEXT,
                                          font=(FONT_UI, 11, "bold"), text="")
 
@@ -367,7 +376,7 @@ class FloatingBubble:
             cx = base_x + i * BAR_GAP
             item = canvas.create_polygon(
                 _capsule_points(cx, cy, BAR_W / 2.0, BAR_W),
-                smooth=True, fill=ACCENT, outline="",
+                smooth=True, fill=LIVE, outline="",
             )
             self._bars.append((item, cx))
 
@@ -423,8 +432,8 @@ class FloatingBubble:
         self._state = state
         if self._canvas is None:
             return
-        color = {"listening": ACCENT, "transcribing": DIM, "done": ACCENT}[state]
-        dot = {"listening": ACCENT, "transcribing": SPIN, "done": ACCENT}[state]
+        color = {"listening": LIVE, "transcribing": DIM, "done": DONE}[state]
+        dot = {"listening": LIVE, "transcribing": SPIN, "done": DONE}[state]
         for item, _cx in self._bars:
             self._canvas.itemconfigure(item, fill=color)
         self._canvas.itemconfigure(self._dot, fill=dot)

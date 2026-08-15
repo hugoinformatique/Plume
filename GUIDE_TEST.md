@@ -16,11 +16,11 @@ La CI construit l'installeur Windows automatiquement. Pour déclencher une relea
 
 ```bash
 # depuis le repo, sur le commit à tester
-git tag v0.4.24
-git push origin v0.4.24
+git tag v0.4.25
+git push origin v0.4.25
 ```
 
-Puis, sur GitHub : onglet **Releases** → `v0.4.24` → télécharge **`Plume-Setup-0.4.24.exe`**.
+Puis, sur GitHub : onglet **Releases** → `v0.4.25` → télécharge **`Plume-Setup-0.4.25.exe`**.
 (Le build prend ~5–10 min. Tu peux suivre l'avancement dans l'onglet **Actions**.)
 
 ### Option B — Sans tag : artifact d'un build manuel
@@ -39,7 +39,7 @@ git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
 
-Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.24.exe`.
+Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.25.exe`.
 
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
@@ -56,7 +56,7 @@ python plume.py
 
 ## 2. Installer et lancer
 
-1. Lance `Plume-Setup-0.4.24.exe` (installation sans droits admin, dans ton profil utilisateur).
+1. Lance `Plume-Setup-0.4.25.exe` (installation sans droits admin, dans ton profil utilisateur).
 2. Ouvre **Plume** depuis le menu Démarrer. La fenêtre est une **app native** (verre dépoli, noir & blanc), pas un navigateur.
 3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt à dicter »** quand le moteur est chaud.
 
@@ -108,21 +108,23 @@ d'erreur s'affiche dans la ligne de statut. À tester dans cet ordre :
 2. **Maintenir pour parler** — active la bascule, puis maintiens le raccourci :
    l'enregistrement doit durer tant que tu tiens, et s'arrêter à la relâche.
 3. **Bip** — depuis la v0.4.24 il sort par la **carte son** (le même chemin
-   audio que le micro) et non plus par le haut-parleur système émulé, qui est
-   muet sur beaucoup de machines : deux notes montantes au départ,
-   descendantes à l'arrêt. Un échec est tracé dans `debug.log`
+   audio que le micro) et non plus par le haut-parleur système émulé, muet sur
+   beaucoup de machines ; depuis la v0.4.25 c'est **une seule note** par
+   évènement (aiguë au départ, plus grave à l'arrêt), à la fréquence
+   d'échantillonnage réelle de la sortie — l'ancien enchaînement de deux notes
+   rééchantillonnées grésillait. Un échec est tracé dans `debug.log`
    (`beep via sounddevice failed`).
-4. **Bulle flottante** (v0.4.24, réécrite en fenêtre native) — elle doit
+4. **Bulle flottante** (fenêtre native depuis la v0.4.24, noir et blanc depuis la v0.4.25) — elle doit
    apparaître à chaque dictée, en bas au centre, **sans voler le focus**
    (le texte se colle bien dans l'app où tu écris). Tu peux la **déplacer à la
    souris** : sa position est retenue. Rechoisir « en haut / en bas » dans les
    réglages — ou le bouton **Replacer** — annule le déplacement. Si elle
    n'apparaît pas, `debug.log` contient une ligne commençant par `bubble:`
    (`tkinter unavailable`, `Tk root not ready…`).
-5. **Profils NPU / iGPU** — ils sont désormais **refusés avec un message
-   explicite** tant qu'OpenVINO n'est pas installé et qu'aucun modèle converti
-   n'est présent (voir §6) : la sélection revient au profil CPU au lieu de
-   casser le moteur.
+5. **Profils NPU / iGPU** — depuis la v0.4.25 l'installeur embarque OpenVINO
+   et un modèle converti : les profils doivent fonctionner directement (voir
+   §6). S'il manque quelque chose, la sélection est **refusée avec un message
+   explicite** et revient au profil CPU au lieu de casser le moteur.
 6. **Réglages** — change une valeur, **quitte l'app** (menu de la zone de
    notification → Quitter), relance : la valeur doit être conservée.
 7. **Mises à jour** — le bouton doit toujours finir par afficher quelque chose
@@ -151,9 +153,22 @@ renvoie l'état du pont et la liste des erreurs rencontrées.
 
 ---
 
-## 6. (Optionnel) Tester le NPU / l'iGPU via OpenVINO
+## 6. Tester le NPU / l'iGPU via OpenVINO
 
-Le backend par défaut (`faster-whisper`) tourne sur **CPU** et n'utilise **pas** la puce IA. Pour exploiter le **NPU (Intel AI Boost)** ou l'**iGPU Arc**, il faut OpenVINO.
+Le backend par défaut (`faster-whisper`) tourne sur **CPU** et n'utilise **pas** la puce IA.
+**Depuis la v0.4.25, l'installeur embarque tout** : le runtime OpenVINO et un modèle
+`whisper-small` déjà converti en int8. Il n'y a donc plus rien à installer ni à convertir :
+
+1. **Réglages > Mode avancé** → profil **iGPU** ou **NPU** (le champ « Modèle » se remplit tout seul).
+2. Le moteur se recharge en tâche de fond ; le statut passe à « Prêt à dicter ».
+3. Dicte la même phrase sur chaque profil et compare — puis passe au benchmark ci-dessous, c'est lui qui tranche.
+
+> **Attendu sur NPU** : le pipeline statique peut encore échouer avec
+> `Port for tensor name cache_position was not found` (conflit de versions en amont,
+> documenté dans `requirements-openvino.txt`). L'erreur s'affiche dans la ligne de statut ;
+> l'iGPU et l'OpenVINO-CPU ne sont pas concernés. Dis-moi ce que tu obtiens exactement.
+
+### Depuis les sources (ou pour convertir un autre modèle)
 
 À faire **sur le HP** :
 

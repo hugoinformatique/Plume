@@ -6,8 +6,44 @@ Set-Location $Root
 
 Write-Host "Plume - Windows build"
 
+param(
+    # The OpenVINO model conversion needs optimum-intel (torch, multi-GB) and
+    # takes several minutes. Skip it for a quick local build -- the resulting
+    # installer then has no NPU/iGPU support, which the app reports honestly
+    # instead of failing at load.
+    [switch]$SkipOpenVino
+)
+
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt -r requirements-build.txt
+
+if (-not $SkipOpenVino) {
+    Write-Host "Installing the OpenVINO runtime (bundled: NPU / iGPU profiles)"
+    python -m pip install -r requirements-openvino-runtime.txt
+
+    if (Test-Path "models\openvino\whisper-small\openvino_tokenizer.xml") {
+        Write-Host "OpenVINO model already converted, reusing it"
+    } else {
+        Write-Host "Converting whisper-small to OpenVINO int8 (isolated venv, slow)"
+        # Same OpenVINO version as the bundled runtime: it refuses IR produced
+        # by a newer release.
+        $ov = python -c "import importlib.metadata as m; print(m.version('openvino'))"
+        python -m venv .convert
+        .\.convert\Scripts\python.exe -m pip install --upgrade pip
+        .\.convert\Scripts\python.exe -m pip install "optimum-intel[openvino]>=1.21" "nncf>=2.14" "openvino==$ov"
+        .\.convert\Scripts\optimum-cli.exe export openvino `
+            --model openai/whisper-small --weight-format int8 `
+            models\openvino\whisper-small
+        foreach ($f in @("openvino_encoder_model.xml", "openvino_decoder_model.xml",
+                         "openvino_tokenizer.xml", "openvino_detokenizer.xml")) {
+            if (-not (Test-Path "models\openvino\whisper-small\$f")) {
+                throw "OpenVINO export is incomplete: $f is missing"
+            }
+        }
+        Remove-Item -Recurse -Force .convert
+    }
+    $env:PLUME_REQUIRE_OPENVINO = "1"
+}
 
 Write-Host "Generating icon assets"
 python scripts\make_icons.py

@@ -81,7 +81,7 @@ INSTALLER_WINDOWS.md
 The intended user-facing installer is:
 
 ```text
-Plume-Setup-0.4.24.exe
+Plume-Setup-0.4.25.exe
 ```
 
 ## Quick Start On Windows
@@ -184,7 +184,16 @@ python dictate.py --backend openvino --device NPU --model models\openvino\whispe
 
 ## OpenVINO / NPU
 
-Only needed to use the Intel iGPU or NPU. Do this **on the target Intel machine**.
+**Since v0.4.25 the installer already ships everything**: the OpenVINO runtime
+and a Whisper `small` model converted to int8 IR, bundled next to the exe. The
+NPU / iGPU / OpenVINO-CPU profiles in Réglages > Mode avancé are usable
+straight away — no conversion step, nothing to download. It costs installer
+size (see [INSTALLER_WINDOWS.md](INSTALLER_WINDOWS.md)); the CI conversion
+happens in `.github/workflows/windows-installer.yml`, in a throwaway virtualenv
+so `optimum-intel`/torch never reach the bundle.
+
+The steps below are for running **from source**, or to convert a different
+model. Do this **on the target Intel machine**.
 
 1. Install the optional deps:
 
