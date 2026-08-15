@@ -208,13 +208,16 @@ target for Whisper. The **NPU** trades some speed for low power, low heat, and a
 free CPU. Don't assume NPU is fastest — measure with `benchmark.py` (below) on
 your actual PC, then decide.
 
-**NPU fails with `Port for tensor name cache_position was not found`**: the
-model was exported with a `transformers` version newer than the NPU static
-pipeline supports. `requirements-openvino.txt` pins `transformers==4.51.3`
-per Intel's guidance — if you installed before that pin existed, run
-`pip install transformers==4.51.3` and **re-export** the model (the export
-format depends on the transformers version at export time, not just what's
-installed now). CPU/GPU are not affected by this.
+**NPU currently fails with `Port for tensor name cache_position was not
+found`** on export produced by the versions in `requirements-openvino.txt`
+(confirmed on real Core Ultra hardware, 2026-08). This is an unresolved
+version conflict between `optimum-intel` (needs `transformers>=4.57` to
+export at all) and the installed `openvino-genai` NPU static pipeline
+(doesn't accept that export's shape). Older `transformers` pins don't help —
+`optimum-intel`'s export refuses to run below 4.57. **Use `--device GPU` or
+`CPU`** until a compatible version combination is found; both are unaffected
+and GPU (Arc iGPU) has measured ~2-3x the throughput of CPU with comparable
+quality on this project's own benchmarks.
 
 ## Privacy Positioning
 

@@ -10,11 +10,13 @@ openvino-genai>=2025.0
 optimum-intel[openvino]>=1.21
 nncf>=2.14
 
-# Pinned per Intel's own guidance: newer transformers versions export models
-# in a shape the NPU *static* pipeline doesn't recognize yet (fails with
-# "Port for tensor name cache_position was not found" at inference time,
-# even though the same export works fine on CPU/GPU). If you already ran
-# `pip install -r requirements-openvino.txt` before this pin was added,
-# reinstall (`pip install transformers==4.51.3`) and re-export any model
-# you plan to use on NPU.
-transformers==4.51.3
+# NOTE: NPU export currently has an unresolved version conflict --
+# optimum-intel[openvino]>=2.0 requires transformers>=4.57 to export at all,
+# but the installed openvino-genai NPU *static* pipeline fails on that
+# export's shape ("Port for tensor name cache_position was not found").
+# transformers==4.51.3 (an older Intel recommendation) is NOT viable either:
+# optimum-intel's export refuses to run below 4.57. No known-good pin as of
+# this writing -- CPU and GPU exports are unaffected. See README
+# "OpenVINO / NPU" and use --device GPU or CPU until this is resolved
+# upstream (or a specific compatible version trio is found and documented
+# here).
