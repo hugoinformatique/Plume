@@ -35,9 +35,8 @@ PROFILES = {
     "ov-cpu": ("openvino", "CPU"),
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
-BUBBLE_W, BUBBLE_H = 252, 64
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.23"
+APP_VERSION = "0.4.24"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -48,17 +47,6 @@ def resource_dir() -> str:
 
 def ui_file(name: str) -> str:
     return os.path.join(resource_dir(), "ui", name)
-
-
-def screen_size() -> tuple[int, int]:
-    if sys.platform == "win32":
-        try:
-            import ctypes
-            u = ctypes.windll.user32
-            return u.GetSystemMetrics(0), u.GetSystemMetrics(1)
-        except Exception:
-            pass
-    return 1920, 1080
 
 
 def set_autostart(enable: bool) -> None:
@@ -122,6 +110,36 @@ def latest_release_info() -> dict:
         "asset_size": installer.get("size"),
         "download_url": installer.get("browser_download_url"),
     }
+
+
+def profile_blocker(profile: str, model: str) -> str | None:
+    """Why this profile cannot run here, in French, or None if it can.
+
+    The OpenVINO profiles (NPU / iGPU / OpenVINO-CPU) need two things the
+    installed build does not ship: the `openvino-genai` runtime (an optional
+    dependency, see requirements-openvino.txt) and a model *converted* to the
+    OpenVINO format on this machine. Selecting one used to persist a config
+    the engine then failed to load on every start -- an unrecoverable state
+    from inside the UI. Refuse up front and say what's missing instead.
+    """
+    if not profile.startswith("ov-"):
+        return None
+    import importlib.util
+
+    if importlib.util.find_spec("openvino_genai") is None:
+        return ("Ce profil demande le moteur OpenVINO, absent de cette installation. "
+                "Installe-le (requirements-openvino.txt) puis convertis un modèle "
+                "avant de le sélectionner.")
+    # Resolve exactly like the engine does (OpenVINOBackend takes Path(model),
+    # i.e. relative to the working directory) so the check and the loader can
+    # never disagree about which directory they are talking about.
+    path = Path(model or "")
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    if not path.exists():
+        return (f"Modèle OpenVINO introuvable : {path}. Convertis-en un "
+                "(optimum-cli export openvino …) puis indique son dossier.")
+    return None
 
 
 def parse_combo_keys(combo: str) -> set:
@@ -295,52 +313,73 @@ class PlumeApp:
         history = self.config.get("history", [])
         self._js(self.window, f"window.plume && plume.setHistory({json.dumps(history)})")
 
-    def _bubble_state(self, state: str, text: str) -> None:
-        self._js(self.bubble, f"window.plumeBubble && plumeBubble.setState({json.dumps(state)}, {json.dumps(text)})")
-
     def _set_update_ui(self, info: dict) -> None:
         self._js(self.window, f"window.plume && plume.setUpdate({json.dumps(info)})")
 
-    # ---- bubble window ------------------------------------------------------
-    def _bubble_geometry(self) -> tuple[int, int]:
-        sw, sh = screen_size()
-        x = (sw - BUBBLE_W) // 2
-        y = 56 if self.config.get("bubble_position") == "top" else sh - BUBBLE_H - 96
-        return x, y
+    # ---- floating bubble ----------------------------------------------------
+    def _get_bubble(self):
+        """The listening pill, created on first use.
+
+        It used to be a second pywebview window (frameless + transparent +
+        always-on-top): three releases in a row it simply never appeared on
+        the user's machine, which is a known weak spot of that combination on
+        Windows/EdgeChromium. It is now a native Tk window (floating_bubble.py)
+        driven from any thread, so its lifecycle no longer depends on the web
+        view at all.
+        """
+        if self.bubble is None:
+            try:
+                from floating_bubble import FloatingBubble
+
+                saved = self.config.get("bubble_xy")
+                self.bubble = FloatingBubble(
+                    position=self.config.get("bubble_position") or "bottom",
+                    pos=tuple(saved) if isinstance(saved, (list, tuple)) and len(saved) == 2 else None,
+                    on_move=self._save_bubble_position,
+                )
+            except Exception as exc:  # noqa: BLE001
+                _debug_log(f"bubble unavailable: {type(exc).__name__}: {exc}")
+                return None
+        return self.bubble
+
+    def _save_bubble_position(self, x: int, y: int) -> None:
+        # The user dragged it somewhere: that is where it belongs from now on.
+        self.config.set("bubble_xy", [int(x), int(y)])
+
+    def _bubble_state(self, state: str, text: str) -> None:
+        bubble = self._get_bubble()
+        if bubble is not None:
+            bubble.set_state(state, text)
+
+    def _bubble_done(self, text: str) -> None:
+        """Closing beat of a dictation: a brief confirmation on the pill."""
+        if self.bubble is not None:
+            try:
+                self.bubble.flash_done(text)
+            except Exception as exc:  # noqa: BLE001
+                _debug_log(f"bubble flash_done failed: {exc}")
 
     def _show_bubble(self, listening: bool) -> None:
-        # A persistent hidden window toggled with .show()/.hide() proved
-        # unreliable on real hardware (appears once, then never reliably
-        # again). Create a fresh window per dictation and destroy it
-        # afterward instead -- more instances, but each one is simple and
-        # short-lived rather than accumulating state across a whole session.
-        self._hide_bubble()
-        x, y = self._bubble_geometry()
-        try:
-            self.bubble = _create_window(
-                "PlumeBubble", ui_file("bubble.html"),
-                width=BUBBLE_W, height=BUBBLE_H, resizable=False, frameless=True,
-                on_top=True, transparent=True, background_color="#111318",
-                focus=False, x=x, y=y,
-            )
-        except Exception:
-            self.bubble = None
+        bubble = self._get_bubble()
+        if bubble is None:
             return
-        self._bubble_state("listening" if listening else "transcribing",
-                           "À l'écoute…" if listening else "Transcription…")
+        bubble.position = self.config.get("bubble_position") or "bottom"
+        bubble.show("listening" if listening else "transcribing",
+                    "À l'écoute…" if listening else "Transcription…")
 
     def _hide_bubble(self) -> None:
         if self.bubble is not None:
             try:
-                self.bubble.destroy()
-            except Exception:
-                pass
-            self.bubble = None
+                self.bubble.hide()
+            except Exception as exc:  # noqa: BLE001
+                _debug_log(f"bubble hide failed: {exc}")
 
     def _level_loop(self) -> None:
+        bubble = self.bubble
         while not self._level_stop.is_set() and self.recording:
             lvl = self.recorder.current_level()
-            self._js(self.bubble, f"window.plumeBubble && plumeBubble.setLevel({lvl:.3f})")
+            if bubble is not None:
+                bubble.set_level(lvl)
             time.sleep(0.07)
 
     # ---- recording ----------------------------------------------------------
@@ -375,27 +414,41 @@ class PlumeApp:
     def _beep(self, kind: str) -> None:
         """Short audio cue on start/stop, independent of the bubble.
 
-        Fired on its own thread: winsound.Beep is synchronous, and blocking
-        the caller delayed the actual start of the capture (and, on stop, the
-        WAV flush) by the duration of the tone.
+        Fired on its own thread: playback is synchronous and would otherwise
+        delay the actual start of the capture (and, on stop, the WAV flush).
         """
-        if not self.config.get("sound_feedback") or sys.platform != "win32":
+        if not self.config.get("sound_feedback"):
             return
         threading.Thread(target=self._beep_now, args=(kind,), daemon=True).start()
 
     def _beep_now(self, kind: str) -> None:
+        # Played through the sound card with sounddevice -- the same audio
+        # stack the recorder already uses, so if dictation works the cue is
+        # audible. winsound.Beep drives the (emulated) motherboard speaker,
+        # which is silent on a lot of machines: that is why v0.4.23 still had
+        # no sound. winsound stays as a fallback.
+        try:
+            import numpy as np
+            import sounddevice as sd
+
+            rate = 44100
+            # Two-tone chirp, rising to start and falling to stop: recognizable
+            # without looking at the screen, and clearly "an app", not Windows.
+            tones = (784.0, 1046.5) if kind == "start" else (880.0, 587.33)
+            dur = 0.075
+            wave = np.concatenate([self._tone(f, dur, rate) for f in tones])
+            sd.play(wave * 0.22, samplerate=rate, blocking=True)
+            return
+        except Exception as exc:  # noqa: BLE001
+            _debug_log(f"beep via sounddevice failed ({kind}): {exc}")
+        if sys.platform != "win32":
+            return
         try:
             import winsound
-            # Distinct tones so start/stop are recognizable without looking at
-            # the screen. 130 ms rather than the previous 70 ms, which went
-            # unnoticed on most machines -- still short enough to stay discreet.
-            freq, dur = (988, 130) if kind == "start" else (587, 130)
-            winsound.Beep(freq, dur)
+            freq, dur_ms = (988, 130) if kind == "start" else (587, 130)
+            winsound.Beep(freq, dur_ms)
         except Exception as exc:  # noqa: BLE001
-            # Beep() drives the (emulated) system speaker and is refused on
-            # some machines/sessions; MessageBeep goes through the normal
-            # audio device instead.
-            _debug_log(f"beep failed ({kind}): {exc}")
+            _debug_log(f"beep via winsound failed ({kind}): {exc}")
             try:
                 import winsound
                 winsound.MessageBeep(
@@ -403,6 +456,21 @@ class PlumeApp:
                 )
             except Exception as exc2:  # noqa: BLE001
                 _debug_log(f"MessageBeep fallback failed ({kind}): {exc2}")
+
+    @staticmethod
+    def _tone(freq: float, seconds: float, rate: int):
+        """A sine with raised-cosine edges -- a raw square start/stop would
+        click, which is exactly the kind of cheap detail you hear."""
+        import numpy as np
+
+        count = max(2, int(rate * seconds))
+        t = np.linspace(0.0, seconds, count, endpoint=False)
+        wave = np.sin(2.0 * np.pi * freq * t).astype("float32")
+        edge = max(1, min(int(rate * 0.006), count // 2))
+        ramp = (1.0 - np.cos(np.linspace(0.0, np.pi, edge))) / 2.0
+        wave[:edge] *= ramp
+        wave[-edge:] *= ramp[::-1]
+        return wave
 
     def _start(self) -> None:
         self.recording = True
@@ -429,6 +497,7 @@ class PlumeApp:
         self.worker.start()
 
     def _transcribe(self, path: Path) -> None:
+        flashed = False
         try:
             engine = self._get_engine()
             hotwords = self.vocab.hotwords() or None
@@ -444,9 +513,13 @@ class PlumeApp:
             if text and self.config.get("autopaste"):
                 paste_text(text)
                 self._set_status(f"Collé — {result.elapsed:.1f}s", "Prêt")
+                self._bubble_done("Collé")
+                flashed = True
             elif text:
                 copy_text(text)
                 self._set_status(f"Prêt (copié) — {result.elapsed:.1f}s", "Prêt")
+                self._bubble_done("Copié")
+                flashed = True
             else:
                 self._set_status("Aucun texte détecté", "Prêt")
         except Exception as exc:  # noqa: BLE001
@@ -459,8 +532,11 @@ class PlumeApp:
                 path.unlink(missing_ok=True)
             except Exception:
                 pass
-            time.sleep(0.5)
-            self._hide_bubble()
+            # A confirmation flash hides the bubble itself once it has been
+            # on screen long enough to read; hiding here too would cut it off.
+            if not flashed:
+                time.sleep(0.5)
+                self._hide_bubble()
 
     def _cleanup_old_recordings(self, max_age_hours: float = 24.0) -> None:
         """Best-effort sweep for wav files that outlived their transcription
@@ -708,9 +784,34 @@ class PlumeApp:
         self._start_tray()
         self._install_hotkey()
         set_autostart(bool(self.config.get("autostart")))
+        self._repair_profile()
         threading.Thread(target=self._preload, daemon=True).start()
         threading.Thread(target=self._cleanup_old_recordings, daemon=True).start()
         threading.Thread(target=self._auto_update_check, daemon=True).start()
+
+    def _repair_profile(self) -> None:
+        """Fall back to the CPU profile if the stored one cannot run here.
+
+        Before v0.4.24 the UI happily saved an OpenVINO profile even without
+        the runtime or a converted model. The engine then failed to load at
+        *every* start, and the only way out was to guess which setting had
+        poisoned the config. Fix it on the spot and say so.
+        """
+        c = self.config
+        profile = next(
+            (k for k, v in PROFILES.items() if v == (c.get("backend"), c.get("device"))),
+            "fw-cpu",
+        )
+        blocker = profile_blocker(profile, str(c.get("model") or ""))
+        if not blocker:
+            return
+        _debug_log(f"profile {profile} unusable at startup, falling back to fw-cpu: {blocker}")
+        backend, device = PROFILES["fw-cpu"]
+        c.data["backend"], c.data["device"] = backend, device
+        if str(c.get("model") or "").startswith("models\\openvino\\"):
+            c.data["model"] = "small"
+        c.save()
+        self._set_status("Profil NPU/iGPU indisponible : retour au moteur CPU.", "Prêt")
 
     def quit(self) -> None:
         try:
@@ -723,12 +824,16 @@ class PlumeApp:
                 self.tray.stop()
         except Exception:
             pass
-        for win in (self.bubble, self.window):
-            try:
-                if win is not None:
-                    win.destroy()
-            except Exception:
-                pass
+        try:
+            if self.bubble is not None:
+                self.bubble.shutdown()
+        except Exception:
+            pass
+        try:
+            if self.window is not None:
+                self.window.destroy()
+        except Exception:
+            pass
 
     def run(self) -> None:
         api = Api(self)
@@ -737,10 +842,14 @@ class PlumeApp:
             width=420, height=700, resizable=True, frameless=False,
             easy_drag=False, min_size=(400, 620), hidden=True,
         )
-        # The bubble window is created on demand per dictation (see
-        # _show_bubble) instead of once here, so self.bubble starts as None
+        # The bubble is a native Tk window created on first dictation (see
+        # _get_bubble) instead of here, so self.bubble starts as None
         # (already set in __init__).
         webview.start(self._on_started, debug=False)
+        # start() returns when the last web view closes -- which is not
+        # necessarily through our quit(). Tear the rest down explicitly so the
+        # tray icon, the hotkey hook and the bubble's Tk loop don't outlive it.
+        self.quit()
 
 
 def _create_window(title, url, **kwargs):
@@ -799,11 +908,17 @@ class Api:
         """Bridge liveness probe, called by the UI on startup."""
         return {"ok": True, "version": APP_VERSION}
 
+    def _current_profile(self) -> str:
+        c = self._app.config
+        return next(
+            (k for k, v in PROFILES.items() if v == (c.get("backend"), c.get("device"))),
+            "fw-cpu",
+        )
+
     @_api_call
     def get_state(self):
         c = self._app.config
-        backend, device = c.get("backend"), c.get("device")
-        profile = next((k for k, v in PROFILES.items() if v == (backend, device)), "fw-cpu")
+        profile = self._current_profile()
         return {
             "words": self._app.vocab.to_list(),
             "history": c.get("history", []),
@@ -886,16 +1001,23 @@ class Api:
 
     @_api_call
     def set_setting(self, key, value):
-        previous = self._app.config.get(key)
+        previous = self._current_profile() if key == "profile" else self._app.config.get(key)
         if key == "profile":
             backend, device = PROFILES.get(value, PROFILES["fw-cpu"])
-            self._app.config.data["backend"] = backend
-            self._app.config.data["device"] = device
             current_model = str(self._app.config.get("model") or "")
             if backend == "openvino" and current_model in FAST_WHISPER_MODEL_NAMES:
-                self._app.config.data["model"] = DEFAULT_OPENVINO_MODEL
+                current_model = DEFAULT_OPENVINO_MODEL
             elif backend == "faster-whisper" and current_model.startswith("models\\openvino\\"):
-                self._app.config.data["model"] = "small"
+                current_model = "small"
+            blocker = profile_blocker(str(value), current_model)
+            if blocker:
+                # Nothing written: the previous, working profile stays in place.
+                _debug_log(f"profile {value} refused: {blocker}")
+                self._app._set_status(blocker, "Indisponible")
+                return {"ok": False, "key": key, "value": previous, "error": blocker}
+            self._app.config.data["backend"] = backend
+            self._app.config.data["device"] = device
+            self._app.config.data["model"] = current_model
             saved = self._app.config.save()
             stored = value if self._app.config.verify("backend") == backend else None
         else:
@@ -905,6 +1027,14 @@ class Api:
             threading.Thread(target=self._app._preload, daemon=True).start()
         if key == "autostart":
             set_autostart(bool(value))
+        if key == "bubble_position":
+            # Choosing top/bottom again means "put it back where you decide":
+            # forget the position the user may have dragged it to, otherwise
+            # the setting would silently have no effect.
+            self._app.config.set("bubble_xy", None)
+            if self._app.bubble is not None:
+                self._app.bubble.position = value
+                self._app.bubble.pos = None
         if key == "push_to_talk":
             # Synchronous: the answer tells the UI whether the mode is really
             # in effect, which is the whole point of the confirmation.
@@ -923,6 +1053,20 @@ class Api:
         # Read back from disk rather than trusting the in-memory dict: this is
         # what makes "the setting did not persist" detectable at the source.
         return {"ok": True, "key": key, "value": value, "stored": stored}
+
+    @_api_call
+    def reset_bubble_position(self):
+        """Put the bubble back where the top/bottom setting says.
+
+        Re-picking the same entry in a <select> fires no change event, so
+        without this a bubble dragged somewhere unusable (off-screen corner,
+        second monitor that is now unplugged) could not be brought back.
+        """
+        self._app.config.set("bubble_xy", None)
+        if self._app.bubble is not None:
+            self._app.bubble.pos = None
+            self._app.bubble.position = self._app.config.get("bubble_position") or "bottom"
+        return {"ok": True, "message": "Bulle replacée"}
 
     @_api_call
     def minimize(self):

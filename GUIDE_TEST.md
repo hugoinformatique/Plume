@@ -16,11 +16,11 @@ La CI construit l'installeur Windows automatiquement. Pour déclencher une relea
 
 ```bash
 # depuis le repo, sur le commit à tester
-git tag v0.4.23
-git push origin v0.4.23
+git tag v0.4.24
+git push origin v0.4.24
 ```
 
-Puis, sur GitHub : onglet **Releases** → `v0.4.23` → télécharge **`Plume-Setup-0.4.23.exe`**.
+Puis, sur GitHub : onglet **Releases** → `v0.4.24` → télécharge **`Plume-Setup-0.4.24.exe`**.
 (Le build prend ~5–10 min. Tu peux suivre l'avancement dans l'onglet **Actions**.)
 
 ### Option B — Sans tag : artifact d'un build manuel
@@ -39,7 +39,7 @@ git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
 
-Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.23.exe`.
+Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.24.exe`.
 
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
@@ -56,7 +56,7 @@ python plume.py
 
 ## 2. Installer et lancer
 
-1. Lance `Plume-Setup-0.4.23.exe` (installation sans droits admin, dans ton profil utilisateur).
+1. Lance `Plume-Setup-0.4.24.exe` (installation sans droits admin, dans ton profil utilisateur).
 2. Ouvre **Plume** depuis le menu Démarrer. La fenêtre est une **app native** (verre dépoli, noir & blanc), pas un navigateur.
 3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt à dicter »** quand le moteur est chaud.
 
@@ -107,12 +107,25 @@ d'erreur s'affiche dans la ligne de statut. À tester dans cet ordre :
    enregistrée. Vérifie que l'ancienne combinaison ne déclenche plus rien.
 2. **Maintenir pour parler** — active la bascule, puis maintiens le raccourci :
    l'enregistrement doit durer tant que tu tiens, et s'arrêter à la relâche.
-3. **Bip** — bip aigu au démarrage, plus grave à l'arrêt (130 ms). Si tu
-   n'entends rien mais que le reste marche, regarde `debug.log` : un échec de
-   `winsound` y est tracé.
-4. **Réglages** — change une valeur, **quitte l'app** (menu de la zone de
+3. **Bip** — depuis la v0.4.24 il sort par la **carte son** (le même chemin
+   audio que le micro) et non plus par le haut-parleur système émulé, qui est
+   muet sur beaucoup de machines : deux notes montantes au départ,
+   descendantes à l'arrêt. Un échec est tracé dans `debug.log`
+   (`beep via sounddevice failed`).
+4. **Bulle flottante** (v0.4.24, réécrite en fenêtre native) — elle doit
+   apparaître à chaque dictée, en bas au centre, **sans voler le focus**
+   (le texte se colle bien dans l'app où tu écris). Tu peux la **déplacer à la
+   souris** : sa position est retenue. Rechoisir « en haut / en bas » dans les
+   réglages — ou le bouton **Replacer** — annule le déplacement. Si elle
+   n'apparaît pas, `debug.log` contient une ligne commençant par `bubble:`
+   (`tkinter unavailable`, `Tk root not ready…`).
+5. **Profils NPU / iGPU** — ils sont désormais **refusés avec un message
+   explicite** tant qu'OpenVINO n'est pas installé et qu'aucun modèle converti
+   n'est présent (voir §6) : la sélection revient au profil CPU au lieu de
+   casser le moteur.
+6. **Réglages** — change une valeur, **quitte l'app** (menu de la zone de
    notification → Quitter), relance : la valeur doit être conservée.
-5. **Mises à jour** — le bouton doit toujours finir par afficher quelque chose
+7. **Mises à jour** — le bouton doit toujours finir par afficher quelque chose
    (version à jour, version disponible, ou un message d'erreur explicite).
 
 Si quelque chose ne marche toujours pas, le fichier

@@ -44,10 +44,12 @@ add product features to the latter.
 - **Config changes.** Add new settings to `config.DEFAULTS` with a sane
   default so existing `config.json` files upgrade without migration code.
   Document the key in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
-- **UI <-> Python bridge.** Python only ever calls `window.plume.*` /
-  `window.plumeBubble.*` on the JS side (see `PlumeApp._js` in `plume.py`);
-  the JS side only ever calls `window.pywebview.api.*` (an `Api` method).
-  Don't invent a third channel.
+- **UI <-> Python bridge.** Python only ever calls `window.plume.*` on the JS
+  side (see `PlumeApp._js` in `plume.py`); the JS side only ever calls
+  `window.pywebview.api.*` (an `Api` method). Don't invent a third channel.
+  Every `Api` method goes through `@_api_call`: it is traced in `debug.log`
+  and returns `{ok, error}` so a failure is visible in the UI instead of
+  vanishing into a dropped promise.
 - **Everything stays local.** No feature should require a network call except
   the optional update check and the (documented, one-time-per-model)
   Hugging Face download in `faster-whisper`. This is a hard product

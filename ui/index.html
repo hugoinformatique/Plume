@@ -4,10 +4,12 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>Plume</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Crect%20width%3D%22100%22%20height%3D%22100%22%20rx%3D%2222%22%20fill%3D%22%230F1115%22%2F%3E%3Cg%20transform%3D%22rotate%28-35%2050%2050%29%22%3E%3Cellipse%20cx%3D%2250%22%20cy%3D%2251%22%20rx%3D%2216%22%20ry%3D%2236%22%20fill%3D%22%23FFFFFF%22%2F%3E%3Cg%20stroke%3D%22%230F1115%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M50%2018%20V85%22%20stroke-width%3D%221.4%22%2F%3E%3Cg%20stroke-width%3D%220.7%22%3E%3Cpath%20d%3D%22M50%2024%20L34%2020.5%20M50%2024%20L66%2020.5%22%2F%3E%3Cpath%20d%3D%22M50%2033%20L34%2029.5%20M50%2033%20L66%2029.5%22%2F%3E%3Cpath%20d%3D%22M50%2042%20L34%2038.5%20M50%2042%20L66%2038.5%22%2F%3E%3Cpath%20d%3D%22M50%2051%20L34%2047.5%20M50%2051%20L66%2047.5%22%2F%3E%3Cpath%20d%3D%22M50%2060%20L34%2056.5%20M50%2060%20L66%2056.5%22%2F%3E%3Cpath%20d%3D%22M50%2069%20L34%2065.5%20M50%2069%20L66%2065.5%22%2F%3E%3Cpath%20d%3D%22M50%2078%20L34%2074.5%20M50%2078%20L66%2074.5%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E" />
 <style>
   :root{
     --ink:#0f1115; --ink-2:#3a3f47; --muted:#767b86;
     --accent:#0f1115;            /* monochrome accent = ink */
+    --err:#a3221f;
     --focus-ring:rgba(15,17,21,.45);
     --glass:rgba(255,255,255,.62); --glass-2:rgba(255,255,255,.40);
     --hair:rgba(255,255,255,.9); --hair-soft:rgba(15,17,21,.09);
@@ -18,7 +20,7 @@
   }
   @media (prefers-color-scheme: dark){
     :root{
-      --ink:#f2f3f6; --ink-2:#c3c7d0; --muted:#9297a1; --accent:#f2f3f6;
+      --ink:#f2f3f6; --ink-2:#c3c7d0; --muted:#9297a1; --accent:#f2f3f6; --err:#ff9a92;
       --focus-ring:rgba(242,243,246,.55);
       --glass:rgba(255,255,255,.06); --glass-2:rgba(255,255,255,.04);
       --hair:rgba(255,255,255,.12); --hair-soft:rgba(255,255,255,.08);
@@ -30,8 +32,11 @@
       transition-duration:.001ms !important;scroll-behavior:auto !important}
   }
   :focus{outline:none}
-  :focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;border-radius:8px}
-  .recbtn:focus-visible,.iconbtn:focus-visible,.tg:focus-visible{outline-offset:3px}
+  /* Anneau de focus unique et toujours visible : l'appli se pilote beaucoup au
+     clavier. L'outline épouse le border-radius de l'élément — ne pas forcer de
+     radius ici, cela déformerait le bouton rond et les pastilles. */
+  :focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+  .recbtn:focus-visible,.iconbtn:focus-visible,.tg:focus-visible,.chip button:focus-visible{outline-offset:3px}
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{
@@ -55,9 +60,13 @@
   .topbar{display:flex;align-items:center;gap:8px;padding:8px 12px 5px}
   .pywebview-drag-region{-webkit-app-region:drag}
   .brand{display:flex;align-items:center;gap:9px;flex:1}
-  .logo{width:26px;height:26px;flex:none;color:var(--ink);display:grid;place-items:center}
-  .logo svg{width:24px;height:24px}
-  .brand h1{font-size:16px;font-weight:700;letter-spacing:-.01em}
+  /* Le logo est la marque du bureau : même tuile sombre arrondie, même plume
+     blanche inclinée que `ui_theme.py::make_icon_image`. On garde la géométrie
+     telle quelle et on laisse le rendu vectoriel exact (pas de hinting). */
+  .logo{width:26px;height:26px;flex:none;display:block;line-height:0;
+    filter:drop-shadow(0 2px 5px rgba(20,24,33,.35))}
+  .logo svg{display:block;width:100%;height:100%;shape-rendering:geometricPrecision}
+  .brand h1{font-size:16px;font-weight:700;letter-spacing:-.015em}
   .statuschip{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--muted);
     padding:5px 11px;border-radius:999px;background:var(--glass-2);
     border:1px solid var(--hair-soft);backdrop-filter:blur(12px)}
@@ -68,12 +77,15 @@
 
   .seg{display:flex;padding:4px;gap:4px;border-radius:16px;background:var(--glass-2);
     border:1px solid var(--hair-soft);backdrop-filter:blur(14px)}
-  .seg button{flex:1;border:0;background:transparent;color:var(--muted);font-family:inherit;
-    font-size:12.5px;font-weight:600;padding:9px 8px;border-radius:12px;cursor:pointer;
-    display:flex;align-items:center;justify-content:center;gap:7px;transition:all .5s var(--ease)}
-  .seg button svg{width:15px;height:15px}
+  .seg button{flex:1;min-width:0;border:0;background:transparent;color:var(--muted);font-family:inherit;
+    font-size:11.5px;font-weight:600;letter-spacing:-.005em;padding:9px 5px;border-radius:12px;cursor:pointer;
+    white-space:nowrap;overflow:hidden;
+    display:flex;align-items:center;justify-content:center;gap:6px;transition:color .35s var(--ease),background .5s var(--ease),box-shadow .5s var(--ease)}
+  .seg button svg{width:14px;height:14px;flex:none}
+  .seg button:hover{color:var(--ink-2)}
   .seg button.active{color:var(--ink);background:var(--glass);
     box-shadow:0 6px 16px -12px rgba(20,24,33,.5), inset 0 1px 1px var(--hair)}
+  .seg button:focus-visible{outline-offset:-1px}
 
   .updatebar{display:none;align-items:center;gap:10px;padding:9px 10px;border-radius:15px;
     background:var(--ink);color:#fff;border:1px solid var(--hair-soft);
@@ -124,25 +136,53 @@
   @media (prefers-color-scheme: dark){body.rec .recbtn{color:#0f1115}}
   body.rec .recbtn .mic{display:none}
   body.rec .recbtn .stop{display:block}
-  .hero .status{font-size:13.5px;color:var(--ink-2);font-weight:600}
-  .hero .hint{font-size:11.5px;color:var(--muted)}
+  /* Le statut est le point focal avec le bouton : il garde une hauteur de deux
+     lignes en réserve pour qu'un message d'erreur ne décale jamais la mise en
+     page (bulle refusée, pont indisponible, réglage rejeté…). */
+  .hero .status{font-size:15px;font-weight:650;color:var(--ink);line-height:1.35;text-align:center;
+    min-height:2.7em;display:flex;align-items:center;justify-content:center;
+    padding:0 2px;overflow-wrap:anywhere;transition:color .35s var(--ease)}
+  .hero .status.err{font-size:12.5px;font-weight:600;color:var(--err)}
+  .hero .hint{font-size:11.5px;color:var(--muted);text-align:center}
   .kbd{font-family:inherit;font-size:11px;font-weight:600;color:var(--ink-2);
     background:var(--glass);border:1px solid var(--hair-soft);border-bottom-width:2px;border-radius:7px;padding:2px 7px}
 
-  .eyebrow{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
-  .transcript{font-size:14px;line-height:1.55;color:var(--ink);min-height:44px}
-  .transcript.empty{color:var(--muted)}
-  .history{display:flex;flex-direction:column;gap:6px;max-height:178px;overflow-y:auto;overflow-x:hidden;padding-right:2px;min-width:0;width:100%}
-  .histitem{display:grid;grid-template-columns:minmax(0,1fr) 30px 30px;align-items:center;gap:8px;
-    padding:9px 10px;border-radius:14px;background:var(--glass);border:1px solid var(--hair-soft);min-width:0;max-width:100%;overflow:hidden}
-  .histitem > div{min-width:0;overflow:hidden}
-  .histtext{font-size:12.5px;line-height:1.35;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .histtime{font-size:10.5px;color:var(--muted);margin-top:2px}
-  .iconbtn{width:30px;height:30px;border:0;border-radius:10px;background:var(--hair-soft);color:var(--ink);
-    display:grid;place-items:center;cursor:pointer;transition:all .35s var(--ease)}
+  .eyebrow{font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+  .transcript{font-size:14px;line-height:1.55;color:var(--ink);min-height:44px;overflow-wrap:anywhere}
+  .transcript.empty{color:var(--muted);font-size:13px}
+  /* La dictée en cours occupe le reste du panneau et défile si elle est longue. */
+  #tab-dictee .card--flat{flex:1;min-height:0;display:flex;flex-direction:column}
+  #tab-dictee .card--flat .inner{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable}
+  /* Historique : rubrique à part entière (onglet dédié). La liste occupe la
+     hauteur restante et défile ; la recherche et la note restent fixes. */
+  .histsearch{flex:none;position:relative}
+  .histsearch .searchico{position:absolute;left:12px;top:50%;transform:translateY(-50%);
+    width:15px;height:15px;color:var(--muted);pointer-events:none}
+  .histsearch input{padding-left:34px}
+  .histsearch input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
+  .history{flex:1;min-height:0;display:flex;flex-direction:column;gap:7px;
+    overflow-y:auto;overflow-x:hidden;padding:1px 3px 1px 1px;min-width:0;width:100%;scrollbar-gutter:stable}
+  .histnote{flex:none;margin-top:2px}
+  .histitem{display:flex;flex-direction:column;gap:5px;flex:none;
+    padding:10px 11px;border-radius:15px;background:var(--glass);border:1px solid var(--hair-soft);
+    min-width:0;max-width:100%;overflow:hidden;
+    transition:border-color .35s var(--ease),background .35s var(--ease)}
+  .histitem:hover{border-color:var(--hair);background:var(--glass)}
+  .histhead{display:flex;align-items:center;gap:8px;min-width:0}
+  .histtime{flex:1;min-width:0;font-size:10.5px;font-weight:600;letter-spacing:.02em;color:var(--muted);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .histacts{display:flex;gap:5px;flex:none;opacity:.72;transition:opacity .3s var(--ease)}
+  .histitem:hover .histacts,.histitem:focus-within .histacts{opacity:1}
+  .histtext{font-size:12.5px;line-height:1.45;color:var(--ink);word-break:break-word;
+    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+  .histempty{padding:26px 12px;text-align:center;font-size:12.5px;line-height:1.5;color:var(--muted)}
+  .histempty svg{width:26px;height:26px;margin:0 auto 9px;display:block;opacity:.45}
+  .iconbtn{width:28px;height:28px;border:0;border-radius:9px;background:var(--hair-soft);color:var(--ink-2);
+    display:grid;place-items:center;cursor:pointer;transition:background .3s var(--ease),color .3s var(--ease),transform .3s var(--ease)}
   .iconbtn:hover{background:var(--ink);color:#fff}
+  .iconbtn:active{transform:scale(.92)}
   @media (prefers-color-scheme: dark){.iconbtn:hover{color:#0f1115}}
-  .iconbtn svg{width:15px;height:15px}
+  .iconbtn svg{width:14px;height:14px}
 
   .wordform{display:flex;gap:8px;margin-top:8px}
   .field{flex:1;position:relative}
@@ -178,7 +218,12 @@
   .row .lbl{font-size:13px;font-weight:600;color:var(--ink)}
   .row .sub{font-size:11px;color:var(--muted);margin-top:2px}
   select,.hotcap,.modelinput{font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--glass);
-    border:1px solid var(--hair-soft);border-radius:11px;padding:8px 11px;outline:none;cursor:pointer;min-width:118px;text-align:center}
+    border:1px solid var(--hair-soft);border-radius:11px;padding:8px 11px;outline:none;cursor:pointer;min-width:118px;text-align:center;
+    transition:border-color .35s var(--ease),background .35s var(--ease)}
+  select:hover,.hotcap:hover,.modelinput:hover,.tg:hover{border-color:var(--hair)}
+  .smallbtn:hover:not(:disabled),.updatebar button:hover:not(:disabled){filter:brightness(1.12)}
+  .smallbtn:active:not(:disabled),.updatebar button:active:not(:disabled){transform:scale(.97)}
+  .smallbtn,.updatebar button{transition:transform .3s var(--ease),filter .3s var(--ease),opacity .3s var(--ease)}
   .hotcap{min-width:130px}
   .modelinput{width:168px;text-align:left;cursor:text}
   .tg{width:44px;height:26px;border-radius:999px;background:var(--hair-soft);position:relative;cursor:pointer;
@@ -202,24 +247,42 @@
   .adv.open{max-height:280px;opacity:1}
   @media (max-height:640px){
     .topbar{padding-top:8px}
-    .seg button{padding:7px 8px}
-    .hero{padding:10px 12px}
+    .seg button{padding:7px 4px}
+    .hero{padding:10px 12px;gap:7px}
     .recwrap{width:92px;height:92px}
     .recbtn{width:72px;height:72px}
+    .hero .status{font-size:14px}
     .muted-note{display:none}
     .row{padding:7px 2px}
   }
   body.advopen .advtoggle svg{transform:rotate(180deg)}
-  .chips::-webkit-scrollbar,.history::-webkit-scrollbar,#tab-reglages::-webkit-scrollbar,#tab-mots::-webkit-scrollbar{width:6px}
-  .chips::-webkit-scrollbar-thumb,.history::-webkit-scrollbar-thumb,#tab-reglages::-webkit-scrollbar-thumb,#tab-mots::-webkit-scrollbar-thumb{background:var(--hair-soft);border-radius:6px}
+  .chips::-webkit-scrollbar,.history::-webkit-scrollbar,#tab-reglages::-webkit-scrollbar,#tab-mots::-webkit-scrollbar,
+  #tab-dictee .card--flat .inner::-webkit-scrollbar{width:6px}
+  .chips::-webkit-scrollbar-thumb,.history::-webkit-scrollbar-thumb,#tab-reglages::-webkit-scrollbar-thumb,#tab-mots::-webkit-scrollbar-thumb,
+  #tab-dictee .card--flat .inner::-webkit-scrollbar-thumb{background:var(--hair-soft);border-radius:6px}
 </style>
 </head>
 <body>
   <div class="topbar">
     <div class="brand pywebview-drag-region">
       <div class="logo">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 4C11 6 6.5 11 5 20c6-1.5 11-5 15-15Z"/><path d="M5 20 10 15"/><path d="M15 6.5c-2 1-4 2.5-5.5 4.5"/>
+        <svg viewBox="0 0 100 100" role="img" aria-label="Plume">
+          <rect width="100" height="100" rx="22" fill="#0F1115"/>
+          <g transform="rotate(-35 50 50)">
+            <ellipse cx="50" cy="51" rx="16" ry="36" fill="#FFFFFF"/>
+            <g stroke="#0F1115" stroke-linecap="round">
+              <path d="M50 18 V85" stroke-width="1.4"/>
+              <g stroke-width="0.7">
+                <path d="M50 24 L34 20.5 M50 24 L66 20.5"/>
+                <path d="M50 33 L34 29.5 M50 33 L66 29.5"/>
+                <path d="M50 42 L34 38.5 M50 42 L66 38.5"/>
+                <path d="M50 51 L34 47.5 M50 51 L66 47.5"/>
+                <path d="M50 60 L34 56.5 M50 60 L66 56.5"/>
+                <path d="M50 69 L34 65.5 M50 69 L66 65.5"/>
+                <path d="M50 78 L34 74.5 M50 78 L66 74.5"/>
+              </g>
+            </g>
+          </g>
         </svg>
       </div>
       <h1>Plume</h1>
@@ -232,6 +295,10 @@
       <button data-tab="dictee" class="active">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
         Dictée
+      </button>
+      <button data-tab="historique">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 12a8.8 8.8 0 1 0 2.6-6.2"/><path d="M3 4.5V9h4.5"/><path d="M12 7.5V12l3 1.8"/></svg>
+        Historique
       </button>
       <button data-tab="mots">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3Z"/><path d="M8 8h7M8 12h7"/></svg>
@@ -254,7 +321,7 @@
         <div class="inner hero">
           <div class="recwrap">
             <div class="ring"></div>
-            <button class="recbtn" id="recBtn" aria-label="Dicter">
+            <button class="recbtn" id="recBtn" aria-label="Dicter" aria-pressed="false">
               <svg class="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
               <span class="stop"></span>
             </button>
@@ -269,14 +336,15 @@
           <div class="transcript empty" id="transcript">Ta dictée apparaîtra ici, puis se collera dans l'app active.</div>
         </div>
       </div>
-      <div class="card--flat">
-        <div class="inner">
-          <div class="eyebrow">Historique local</div>
-          <div class="field" style="margin-bottom:8px"><input id="historySearch" placeholder="Rechercher dans l'historique…" /></div>
-          <div class="history" id="history" style="max-height:260px"></div>
-          <p class="muted-note">Les dernières dictées restent sur ce PC pour pouvoir recopier ou recoller en cas de mauvais focus.</p>
-        </div>
+    </section>
+
+    <section class="panel" id="tab-historique">
+      <div class="field histsearch">
+        <svg class="searchico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="6.4"/><path d="M15.6 15.6 20 20"/></svg>
+        <input id="historySearch" type="search" placeholder="Rechercher dans l'historique…" aria-label="Rechercher dans l'historique" />
       </div>
+      <div class="history" id="history"></div>
+      <p class="muted-note histnote">Les dernières dictées restent sur ce PC, jamais envoyées ailleurs : de quoi recopier ou recoller si le focus a changé.</p>
     </section>
 
     <section class="panel" id="tab-mots">
@@ -322,8 +390,12 @@
             <div class="tg" id="tgPtt" role="switch" aria-checked="false" aria-label="Maintenir pour parler" tabindex="0"></div>
           </div>
           <div class="row">
-            <div><div class="lbl">Position de la bulle</div><div class="sub">Indicateur d'écoute</div></div>
+            <div><div class="lbl">Position de la bulle</div><div class="sub">Indicateur d'écoute — déplaçable à la souris</div></div>
             <select id="bubble"><option value="bottom">En bas</option><option value="top">En haut</option></select>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Replacer la bulle</div><div class="sub">Annule le déplacement et la remet au centre</div></div>
+            <button class="smallbtn" id="resetBubble" type="button">Replacer</button>
           </div>
           <div class="row">
             <div><div class="lbl">Collage automatique</div><div class="sub">Coller dans l'app active</div></div>
@@ -431,8 +503,12 @@
 
   const recBtn=document.getElementById("recBtn");
   function setRecording(on){ state.recording=on; document.body.classList.toggle("rec",on);
-    document.getElementById("status").textContent = on ? "À l'écoute…" : "Prêt à dicter";
+    const st=document.getElementById("status");
+    st.textContent = on ? "À l'écoute…" : "Prêt à dicter";
+    st.classList.remove("err");
     document.getElementById("statusMini").textContent = on ? "Écoute" : "Prêt";
+    recBtn.setAttribute("aria-pressed", on ? "true" : "false");
+    recBtn.setAttribute("aria-label", on ? "Arrêter la dictée" : "Dicter");
   }
   recBtn.addEventListener("click", ()=>{ setRecording(!state.recording); api.toggle(); });
 
@@ -440,23 +516,43 @@
   advToggle.addEventListener("click", ()=>{ adv.classList.toggle("open"); document.body.classList.toggle("advopen"); });
   // persist settings
   const settingMap = { lang:"language", model:"model", bubble:"bubble_position", cleanup:"cleanup", compute:"compute", profile:"profile" };
-  // `set_setting` renvoie {ok, key, value, error} : on signale les refus.
-  const setSetting = (key, value)=> api.set_setting(key, value).then(r=>{
-    if(r && r.ok===false) showError(r.error || ("Réglage « " + key + " » refusé"));
+  // `set_setting` renvoie {ok, key, value, error}. Un refus (profil NPU sans
+  // moteur OpenVINO, par exemple) remet le champ sur la valeur réellement
+  // en vigueur, renvoyée par Python : l'écran ne prétend jamais avoir appliqué
+  // un réglage que le moteur a rejeté.
+  const setSetting = (key, value, el)=> api.set_setting(key, value).then(r=>{
+    if(r && r.ok===false){
+      if(el && r.value!=null) el.value = r.value;
+      if(!r.__bridgeError) showError(r.error || ("Réglage « " + key + " » refusé"));
+    }
     return r;
   });
-  Object.keys(settingMap).forEach(id=>{ const el=document.getElementById(id);
-    el && el.addEventListener("change", ()=> setSetting(settingMap[id], el.value)); });
-  document.getElementById("model").addEventListener("blur", e=>setSetting("model", e.target.value.trim() || "small"));
+  // `profile` a son propre gestionnaire (il entraîne le modèle avec lui).
+  Object.keys(settingMap).filter(id=>id!=="profile").forEach(id=>{ const el=document.getElementById(id);
+    el && el.addEventListener("change", ()=> setSetting(settingMap[id], el.value, el)); });
+  document.getElementById("model").addEventListener("blur", e=>setSetting("model", e.target.value.trim() || "small", e.target));
   document.getElementById("profile").addEventListener("change", e=>{
     const model=document.getElementById("model");
+    const prevModel=model.value;
     if(e.target.value.startsWith("ov-") && ["base","small","medium","turbo"].includes(model.value)){
       model.value="models\\openvino\\whisper-small";
     }
     if(e.target.value==="fw-cpu" && model.value.startsWith("models\\openvino\\")){
       model.value="small";
     }
-    setSetting("model", model.value);
+    // Le modèle ne suit le profil que si le profil est accepté : sinon on
+    // resterait avec un modèle OpenVINO sur un moteur faster-whisper.
+    setSetting("profile", e.target.value, e.target).then(r=>{
+      if(r && r.ok===false){ model.value=prevModel; return; }
+      setSetting("model", model.value, model);
+    });
+  });
+  const resetBubble=document.getElementById("resetBubble");
+  resetBubble && resetBubble.addEventListener("click", ()=>{
+    resetBubble.disabled=true;
+    api.reset_bubble_position().then(r=>{
+      if(r && r.ok!==false) window.plume.setStatus("Bulle replacée", "Prêt");
+    }).then(()=>{ resetBubble.disabled=false; });
   });
   const tgPaste=document.getElementById("tgPaste"), tgStartup=document.getElementById("tgStartup");
   const tgPtt=document.getElementById("tgPtt"), tgSound=document.getElementById("tgSound");
@@ -568,26 +664,54 @@
 
   const historyEl=document.getElementById("history");
   const historySearch=document.getElementById("historySearch");
-  function shortTime(ts){ try{return new Date(ts).toLocaleString([], {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});}catch{return "";} }
+  const ICON_COPY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  const ICON_PASTE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8l2 2v14H6V6l2-2Z"/><path d="M9 12h6M9 16h6"/></svg>';
+  const ICON_EMPTY='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 12a8.8 8.8 0 1 0 2.6-6.2"/><path d="M3 4.5V9h4.5"/><path d="M12 7.5V12l3 1.8"/></svg>';
+  const HHMM=(d)=>d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+  // Date courte et parlante en français : « à l'instant », « il y a 5 min »,
+  // « hier 14:32 », « lundi 09:10 », puis « 12/03 08:44 » (année si besoin).
+  function shortTime(ts){
+    const d=new Date(ts);
+    if(isNaN(d)) return "";
+    const now=new Date(), diff=(now-d)/1000;
+    if(diff>=0 && diff<45) return "à l'instant";
+    if(diff>=0 && diff<3600){ const m=Math.max(1,Math.round(diff/60)); return "il y a "+m+" min"; }
+    const day=(x)=>new Date(x.getFullYear(),x.getMonth(),x.getDate());
+    const days=Math.round((day(now)-day(d))/86400000);
+    if(days===0) return "aujourd'hui "+HHMM(d);
+    if(days===1) return "hier "+HHMM(d);
+    if(days>1 && days<7) return d.toLocaleDateString("fr-FR",{weekday:"long"})+" "+HHMM(d);
+    const sameYear=d.getFullYear()===now.getFullYear();
+    return d.toLocaleDateString("fr-FR", sameYear ? {day:"2-digit",month:"2-digit"}
+                                                  : {day:"2-digit",month:"2-digit",year:"numeric"})+" "+HHMM(d);
+  }
+  const esc=(s)=>String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  function emptyState(msg){ return '<div class="histempty">'+ICON_EMPTY+'<div>'+esc(msg)+'</div></div>'; }
   function renderHistory(){ historyEl.innerHTML="";
-    if(!state.history.length){ historyEl.innerHTML='<div class="transcript empty">Aucune dictée récente.</div>'; return; }
+    if(!state.history.length){ historyEl.innerHTML=emptyState("Aucune dictée pour l'instant"); return; }
     const query=(historySearch && historySearch.value || "").trim().toLowerCase();
     // Keep the original index (needed by api.copy_history/paste_history,
     // which index into the full un-filtered history) even though a search
     // query shows a subset of rows.
     const entries=state.history.map((h,i)=>({h,i})).filter(({h})=>!query || (h.text||"").toLowerCase().includes(query));
-    if(!entries.length){ historyEl.innerHTML='<div class="transcript empty">Aucun résultat.</div>'; return; }
+    if(!entries.length){ historyEl.innerHTML=emptyState("Aucun résultat pour « "+query+" »"); return; }
     entries.forEach(({h,i})=>{ const row=document.createElement("div"); row.className="histitem";
-      row.innerHTML=`<div><div class="histtext"></div><div class="histtime">${shortTime(h.timestamp)}</div></div>
-        <button class="iconbtn" title="Copier" data-copy="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-        <button class="iconbtn" title="Recoller" data-paste="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8l2 2v14H6V6l2-2Z"/><path d="M9 12h6M9 16h6"/></svg></button>`;
+      row.innerHTML=`<div class="histhead"><span class="histtime"></span><div class="histacts">
+          <button class="iconbtn" title="Copier" aria-label="Copier la dictée" data-copy="${i}">${ICON_COPY}</button>
+          <button class="iconbtn" title="Recoller" aria-label="Recoller la dictée" data-paste="${i}">${ICON_PASTE}</button>
+        </div></div>
+        <div class="histtext"></div>`;
+      row.querySelector(".histtime").textContent=shortTime(h.timestamp);
       row.querySelector(".histtext").textContent=h.text || "";
       historyEl.appendChild(row);
     });
     historyEl.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",()=>api.copy_history(+b.dataset.copy)));
     historyEl.querySelectorAll("[data-paste]").forEach(b=>b.addEventListener("click",()=>api.paste_history(+b.dataset.paste)));
   }
-  historySearch && historySearch.addEventListener("input", renderHistory);
+  if(historySearch){
+    historySearch.addEventListener("input", renderHistory);
+    historySearch.addEventListener("keydown", e=>{ if(e.key==="Escape" && historySearch.value){ historySearch.value=""; renderHistory(); } });
+  }
 
   const hotcap=document.getElementById("hotcap");
   const hotHint=document.getElementById("hotHint");
@@ -625,7 +749,9 @@
   });
 
   window.plume = {
-    setStatus:(t,mini)=>{ document.getElementById("status").textContent=t; if(mini)document.getElementById("statusMini").textContent=mini; },
+    setStatus:(t,mini)=>{ const el=document.getElementById("status");
+      el.textContent=t; el.classList.toggle("err", mini==="Erreur");
+      if(mini)document.getElementById("statusMini").textContent=mini; },
     setRecording,
     setTranscript:(t)=>{ const el=document.getElementById("transcript"); el.textContent=t||"—"; el.classList.toggle("empty",!t); },
     setHistory:(items)=>{ state.history=Array.isArray(items)?items:[]; renderHistory(); },

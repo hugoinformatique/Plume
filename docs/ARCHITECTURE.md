@@ -27,11 +27,12 @@ that share the same core:
 
 - **`plume.py`** — the current product. A pywebview app: native Python core
   (audio, engine, global hotkey, paste, tray, autostart, self-update) plus an
-  embedded web view for the UI (`ui/index.html` for the main window,
-  `ui/bubble.html` for the floating "listening" pill).
+  embedded web view for the UI (`ui/index.html`). The floating "listening"
+  pill is a native Tk window (`floating_bubble.py`), not a web view: as a
+  second frameless/transparent pywebview window it never showed up reliably
+  on Windows.
 - **`tray_app.py`** — legacy Tk-based test app, kept for reference/testing but
-  not the shipped product. Uses `listening_bubble.py` (a Tk canvas widget)
-  instead of the HTML bubble.
+  not the shipped product. Uses `listening_bubble.py`, its own older Tk bubble.
 - **`dictate.py`** — bare console MVP (F9 start/stop, Esc quit), useful for
   quick engine testing without any UI.
 
@@ -45,25 +46,28 @@ that share the same core:
 | `config.py` | Persistent per-user settings (`Config`, backed by `%APPDATA%\Plume\config.json` on Windows, `~/.config/plume` elsewhere), hotkey display-string <-> pynput format conversion. |
 | `vocabulary.py` | User correction dictionary: biases recognition (`hotwords`/`initial_prompt`) and post-corrects known mis-hearings. |
 | `ui_theme.py` | Shared design tokens (colors, font) and the procedurally-drawn feather app icon (used for the tray icon and window icon; also generates `assets/plume.ico`/`.png` at build time via `scripts/make_icons.py`). |
-| `listening_bubble.py` | Tk-canvas floating "listening" pill — legacy, used by `tray_app.py` only. The shipped app uses `ui/bubble.html` instead. |
+| `floating_bubble.py` | The shipped floating "listening" pill: a native Tk window with its own Tk loop in a daemon thread, driven from any thread through a command queue. Draggable, never takes focus, degrades to a no-op if Tk is missing. |
+| `listening_bubble.py` | Older Tk-canvas pill — legacy, used by `tray_app.py` only (it owns the Tk main loop itself). |
 | `benchmark.py` | CLI: sweep backend x device x model x file combinations on `samples/` and write `benchmark-results/results.csv`. |
 | `perflog.py` | CLI: summarize/tail the `metrics.csv` history the app writes per real dictation (see [BENCHMARKING.md](BENCHMARKING.md)). |
 
 ## UI (pywebview)
 
-`ui/index.html` and `ui/bubble.html` are plain HTML/CSS/JS, no build step, no
-framework. They talk to Python two ways:
+`ui/index.html` is plain HTML/CSS/JS, no build step, no framework. It talks to
+Python two ways:
 
 - **UI -> Python**: `window.pywebview.api.<method>(...)` calls a method on the
   `Api` class in `plume.py`. The JS side wraps this in a small `Proxy` (see
-  `const api = new Proxy(...)` in `index.html`) so `api.toggle()` etc. always
-  resolve to a promise, even before pywebview has injected `window.pywebview`.
+  `const api = new Proxy(...)` in `index.html`) that queues calls behind a
+  `bridgeReady` promise, so a click landing before pywebview has injected the
+  bridge is delayed rather than silently dropped, and a bridge that never
+  comes up surfaces an error instead of nothing.
 - **Python -> UI**: `PlumeApp._js(window, code)` calls `window.evaluate_js(code)`
-  to invoke a function the page defined on `window.plume` (main window) or
-  `window.plumeBubble` (bubble window) — e.g. `plume.setStatus(...)`,
-  `plumeBubble.setState(...)`. Keep these two objects as the only surface
-  Python pushes into; anything else risks silently no-op'ing if the page
-  hasn't finished loading.
+  to invoke a function the page defined on `window.plume` — e.g.
+  `plume.setStatus(...)`. Keep that object as the only surface Python pushes
+  into; anything else risks silently no-op'ing if the page hasn't finished
+  loading. The bubble is not scripted this way: it is a Python object
+  (`FloatingBubble`) called directly.
 
 Design tokens (colors, radii, easing) live as CSS custom properties at the
 top of `index.html`; `ui_theme.py` holds the equivalent Python-side palette

@@ -29,6 +29,7 @@ DEFAULTS = {
     "compute": "int8",
     "cleanup": "light",
     "bubble_position": "bottom",
+    "bubble_xy": None,             # [x, y] once the user has dragged the bubble
     "hotkey": "<ctrl>+<space>",   # pynput format
     "hotkey_display": "Ctrl + Espace",
     "autopaste": True,

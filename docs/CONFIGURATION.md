@@ -29,15 +29,16 @@ value)` writes a key and persists immediately.
 | `compute` | `"int8"` | `faster-whisper` compute type (`int8`, `int8_float16`, `float16`, `float32`). Ignored by the `openvino` backend (precision is fixed at model-conversion time). |
 | `cleanup` | `"light"` | Post-processing mode: `"off"`, `"light"` (strip filler words/repeats), `"strong"` (also strips hedging phrases). See `sttlocal.clean_transcript`. |
 | `bubble_position` | `"bottom"` | Floating listening-pill placement: `"bottom"` or `"top"`. |
+| `bubble_xy` | `null` | `[x, y]` written once the user drags the pill somewhere; it then wins over `bubble_position`. Cleared by re-picking a position or by "Replacer" in the settings. |
 | `hotkey` | `"<ctrl>+<space>"` | Global hotkey in `pynput` format. Set indirectly via `hotkey_display` + `config.hotkey_to_pynput()` — don't hand-edit this one. |
 | `hotkey_display` | `"Ctrl + Espace"` | Human-readable hotkey shown in the UI. |
 | `autopaste` | `true` | Paste the transcript into the active app automatically; if `false`, it's copied to the clipboard instead. |
 | `autostart` | `false` | Launch Plume when Windows starts (writes/removes a `HKCU\...\Run` registry value — packaged builds only, see `set_autostart()` in `plume.py`). |
 | `metrics` | `true` | Whether real dictations are logged to `metrics.csv` (see [BENCHMARKING.md](BENCHMARKING.md)). |
 | `push_to_talk` | `false` | `false`: press the hotkey to start, press again to stop (default). `true`: hold the hotkey to record, release to stop. Both modes are served by the same `HotkeyEngine` in `plume.py`, a raw press/release listener (edge-triggered, so OS key-repeat can't double-fire it) rather than `pynput.GlobalHotKeys`. |
-| `sound_feedback` | `true` | Short, distinct start/stop beep (`winsound.Beep`, played on its own thread, falling back to `MessageBeep`). Independent of the listening bubble window, so it still gives feedback if that window fails to render. |
+| `sound_feedback` | `true` | Short, distinct start/stop cue, played on its own thread through the sound card (`sounddevice`, the same audio path as the mic — `winsound.Beep`/`MessageBeep` only as a fallback, since it drives the emulated motherboard speaker and is silent on many laptops). Independent of the listening bubble, so it still gives feedback if that window fails to render. |
 | `vocabulary` | `[]` | List of `{"from": str, "to": str}` — see below. |
-| `history` | `[]` | Last ~12 local dictations (`{"text": str, "timestamp": iso8601}`), most recent first. Never leaves the machine; shown in the "Dictée" tab. |
+| `history` | `[]` | Last ~12 local dictations (`{"text": str, "timestamp": iso8601}`), most recent first. Never leaves the machine; shown in the "Historique" tab. |
 
 The UI's "profile" dropdown (Rapide/NPU/iGPU/OpenVINO-CPU) is a convenience
 that writes `backend` + `device` together — see `PROFILES` in `plume.py`. It

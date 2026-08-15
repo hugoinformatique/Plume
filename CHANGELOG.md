@@ -5,6 +5,59 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.24
+
+Retour de test de la v0.4.23 : push-to-talk, changement de raccourci et
+persistance des réglages fonctionnent. Restaient la bulle, le bip, et les
+profils NPU/iGPU.
+
+- **La bulle flottante devient une fenêtre native.** Quatre versions de suite
+  elle n'est jamais apparue sur la machine de test alors qu'elle marchait en
+  développement : c'était une seconde fenêtre pywebview *frameless +
+  transparente + toujours au-dessus*, la combinaison la plus fragile de
+  WebView2 sous Windows. Elle est réécrite en Tk natif
+  (`floating_bubble.py`) : boucle Tk dans son propre thread, commandes
+  sérialisées par une file, aucun appel Tk hors de ce thread, et repli
+  silencieux (l'app continue de dicter) si Tk manque. Pilule de 260×64,
+  coins arrondis par `-transparentcolor`, barres en capsules qui suivent la
+  voix, balayage distinct pendant la transcription, confirmation « Collé »
+  en fin de dictée — et surtout elle **ne prend jamais le focus**
+  (`WS_EX_NOACTIVATE`), pour que le texte se colle dans la bonne fenêtre.
+  Elle se **déplace à la souris** et retient sa position (`bubble_xy`) ;
+  rechoisir haut/bas dans les réglages annule ce déplacement.
+  `ui/bubble.html` disparaît avec l'ancienne approche.
+- **Le bip sort enfin.** `winsound.Beep` pilote le haut-parleur de la carte
+  mère (émulé, muet sur beaucoup de portables) : le son passe maintenant par
+  la carte son via `sounddevice`, le même chemin audio que le micro — si la
+  dictée s'entend, le bip aussi. Deux notes montantes au départ, descendantes
+  à l'arrêt, avec des fondus de 6 ms pour éviter le clic ; `winsound` reste
+  en repli.
+- **Profils NPU / iGPU : refus explicite au lieu d'une erreur.** Ils
+  demandent le runtime `openvino-genai` (absent de l'installeur) *et* un
+  modèle converti localement. Les sélectionner enregistrait une configuration
+  que le moteur ne pouvait plus charger, y compris aux démarrages suivants.
+  `profile_blocker()` vérifie les deux avant d'écrire quoi que ce soit ; en
+  cas de refus rien n'est persisté, le message dit ce qui manque, et la liste
+  revient au profil CPU. Le modèle ne suit le profil que si celui-ci est
+  accepté.
+- **Interface** : l'historique devient une **rubrique à part entière**
+  (recherche, dates relatives en français, copier/recoller par entrée, état
+  vide), le logo de l'app est désormais **exactement celui du raccourci
+  bureau** (même plume blanche sur tuile sombre, transcrite en SVG depuis
+  `ui_theme.make_icon_image`), et la hiérarchie visuelle est resserrée :
+  ligne de statut lisible et de hauteur fixe (plus de saut quand une erreur
+  s'affiche), états de survol/focus cohérents et visibles au clavier.
+- **Réparation automatique au démarrage** : une configuration déjà bloquée sur
+  un profil NPU/iGPU par la v0.4.23 revenait en erreur moteur à chaque
+  lancement, sans indice sur le réglage fautif. Elle est maintenant détectée et
+  ramenée au profil CPU, avec un message.
+- Détails issus de la relecture : la confirmation de fin de dictée n'est plus
+  coupée au bout de 500 ms, la position de la bulle est bornée au **bureau
+  virtuel** (un second écran reste une position valide), un démarrage lent de
+  Tk ne désactive plus la bulle pour toute la session, et le bouton
+  **Replacer** des réglages rattrape une bulle déplacée hors d'atteinte
+  (resélectionner la même entrée d'une liste ne déclenche aucun évènement).
+
 ## v0.4.23
 
 Audit des bugs restants de v0.4.22 (raccourci non pris en compte,

@@ -20,8 +20,13 @@ hiddenimports = (
         "pynput",
         "sounddevice",
         "clr",
+        # The floating bubble is a native Tk window: nothing imports tkinter at
+        # module level (it is loaded lazily so the app still runs without it),
+        # so PyInstaller would not bundle it on its own.
+        "tkinter",
         # Local modules.
         "plume",
+        "floating_bubble",
         "backends",
         "sttlocal",
         "ui_theme",
