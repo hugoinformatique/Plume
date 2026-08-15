@@ -5,6 +5,27 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.21
+
+- Repo consolidated onto a single branch: `main` now points at what was
+  `feat/plume-pluggable-backends`'s tip; all tags/releases/CI happen there
+  from now on.
+- Add push-to-talk: hold the hotkey to record, release to stop, instead of
+  press-toggle. Off by default, toggle it in Réglages ("Maintenir pour
+  parler"). Implemented with raw key press/release tracking (`HoldToTalk`
+  in `plume.py`) since `pynput.GlobalHotKeys` only supports one-shot
+  press detection. This may also explain the still-unresolved bubble
+  flicker: holding a toggle-mode hotkey can retrigger on OS key-repeat.
+- Add a short, distinct start/stop beep (`winsound`), independent of the
+  bubble window — a fallback feedback channel that doesn't depend on
+  WebView2 rendering at all. Toggle in Réglages ("Retour sonore"), on by
+  default.
+- History is now searchable and no longer capped at 3 visible items in the
+  Dictée tab.
+- `config.json` writes are now atomic (write-to-temp then rename) instead
+  of in-place, to rule out settings resetting to defaults if a write was
+  ever interrupted mid-save.
+
 ## v0.4.20
 
 - Bubble fix in v0.4.19 (debounce) didn't resolve it — still showed once
@@ -19,7 +40,7 @@ process.
 - Fix the listening bubble showing for a single frame then disappearing:
   the global hotkey could fire `toggle()` twice for one press (OS key-repeat
   on the space bar), starting and immediately stopping the recording.
-  Debounced. (Turned out not to be the whole story — see v0.4.20.)
+  Debounced. (Turned out not to be the whole story — see v0.4.20/v0.4.21.)
 - Start minimized to the tray instead of opening the main window every
   launch; use the tray icon (double-click, or "Afficher Plume") to open it.
 - Fix automatic updates failing with "impossible de fermer l'application":

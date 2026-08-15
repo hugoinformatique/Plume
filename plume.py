@@ -37,7 +37,7 @@ PROFILES = {
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 BUBBLE_W, BUBBLE_H = 252, 64
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.20"
+APP_VERSION = "0.4.21"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -81,7 +81,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.20' or '0.4.20'."""
+    """Return a comparable numeric version tuple from 'v0.4.21' or '0.4.21'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -122,6 +122,77 @@ def latest_release_info() -> dict:
         "asset_size": installer.get("size"),
         "download_url": installer.get("browser_download_url"),
     }
+
+
+def _parse_combo_keys(combo: str):
+    """'<ctrl>+<space>' -> {Key.ctrl, Key.space}, for hold-to-talk matching."""
+    from pynput import keyboard
+
+    keys = set()
+    for part in combo.split("+"):
+        part = part.strip()
+        if not part:
+            continue
+        if part.startswith("<") and part.endswith(">"):
+            name = part[1:-1].lower()
+            key = getattr(keyboard.Key, name, None)
+            if key is not None:
+                keys.add(key)
+        elif len(part) == 1:
+            keys.add(keyboard.KeyCode.from_char(part.lower()))
+    return keys
+
+
+class HoldToTalk:
+    """Push-to-talk: call on_start when every key in the combo is held down
+    together, on_stop as soon as any of them is released. Unlike
+    GlobalHotKeys (which fires once per full press, toggle-style), this
+    tracks raw key state for a true "hold to record" gesture."""
+
+    def __init__(self, combo: str, on_start, on_stop) -> None:
+        self._combo = _parse_combo_keys(combo)
+        self._on_start = on_start
+        self._on_stop = on_stop
+        self._pressed: set = set()
+        self._active = False
+        self._listener = None
+
+    def start(self) -> None:
+        from pynput import keyboard
+
+        self._listener = keyboard.Listener(on_press=self._on_press, on_release=self._on_release)
+        self._listener.start()
+
+    def stop(self) -> None:
+        if self._listener is not None:
+            try:
+                self._listener.stop()
+            except Exception:
+                pass
+            self._listener = None
+        self._pressed.clear()
+        self._active = False
+
+    def join(self, timeout: float | None = None) -> None:
+        pass  # kept for interface parity with pynput.keyboard.GlobalHotKeys
+
+    def _canonical(self, key):
+        try:
+            return self._listener.canonical(key)
+        except Exception:
+            return key
+
+    def _on_press(self, key) -> None:
+        self._pressed.add(self._canonical(key))
+        if not self._active and self._combo and self._combo.issubset(self._pressed):
+            self._active = True
+            self._on_start()
+
+    def _on_release(self, key) -> None:
+        self._pressed.discard(self._canonical(key))
+        if self._active and not self._combo.issubset(self._pressed):
+            self._active = False
+            self._on_stop()
 
 
 class PlumeApp:
@@ -259,9 +330,33 @@ class PlumeApp:
         else:
             self._start()
 
+    # ---- push-to-talk ---------------------------------------------------
+    def _ptt_press(self) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+        if not self.recording:
+            self._start()
+
+    def _ptt_release(self) -> None:
+        if self.recording:
+            self._stop()
+
+    def _beep(self, kind: str) -> None:
+        if not self.config.get("sound_feedback") or sys.platform != "win32":
+            return
+        try:
+            import winsound
+            # Distinct short tones so start/stop are recognizable without
+            # looking at the screen; independent of the bubble window.
+            freq, dur = (880, 70) if kind == "start" else (523, 70)
+            winsound.Beep(freq, dur)
+        except Exception:
+            pass
+
     def _start(self) -> None:
         self.recording = True
         self.recorder.start()
+        self._beep("start")
         self._set_recording_ui(True)
         self._show_bubble(listening=True)
         self._level_stop.clear()
@@ -270,6 +365,7 @@ class PlumeApp:
     def _stop(self) -> None:
         self.recording = False
         self._level_stop.set()
+        self._beep("stop")
         self._set_recording_ui(False)
         path = self.recorder.stop_to_wav(self.recordings_dir)
         if path is None:
@@ -382,12 +478,22 @@ class PlumeApp:
             self._hotkey = None
         combo = self.config.get("hotkey") or "<ctrl>+<space>"
         try:
-            # GlobalHotKeys re-registers the real Windows hook each time the
-            # shortcut changes. It is more reliable than keeping a manual
-            # press/release listener alive across shortcut edits.
-            self.hotkeys = keyboard.GlobalHotKeys({
-                combo: lambda: threading.Thread(target=self.toggle, daemon=True).start()
-            })
+            if self.config.get("push_to_talk"):
+                # Hold the combo to record, release to stop -- raw key-state
+                # tracking rather than GlobalHotKeys' one-shot press
+                # detection, which only supports toggle semantics.
+                self.hotkeys = HoldToTalk(
+                    combo,
+                    on_start=lambda: threading.Thread(target=self._ptt_press, daemon=True).start(),
+                    on_stop=lambda: threading.Thread(target=self._ptt_release, daemon=True).start(),
+                )
+            else:
+                # GlobalHotKeys re-registers the real Windows hook each time
+                # the shortcut changes. It is more reliable than keeping a
+                # manual press/release listener alive across shortcut edits.
+                self.hotkeys = keyboard.GlobalHotKeys({
+                    combo: lambda: threading.Thread(target=self.toggle, daemon=True).start()
+                })
             self.hotkeys.start()
             self._set_status("Raccourci enregistré", "Prêt")
         except Exception as exc:  # noqa: BLE001
@@ -586,6 +692,7 @@ class Api:
                 "compute": c.get("compute"), "bubble_position": c.get("bubble_position"),
                 "hotkey_display": c.get("hotkey_display"),
                 "autopaste": c.get("autopaste"), "autostart": c.get("autostart"),
+                "push_to_talk": c.get("push_to_talk"), "sound_feedback": c.get("sound_feedback"),
             },
         }
 
@@ -640,6 +747,8 @@ class Api:
             threading.Thread(target=self.app._preload, daemon=True).start()
         if key == "autostart":
             set_autostart(bool(value))
+        if key == "push_to_talk":
+            threading.Thread(target=self.app._install_hotkey, daemon=True).start()
 
     def minimize(self):
         try:

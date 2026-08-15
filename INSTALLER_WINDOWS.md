@@ -20,7 +20,7 @@ The Windows build produces two artifacts:
 The installer file name is:
 
 ```text
-Plume-Setup-0.4.20.exe
+Plume-Setup-0.4.21.exe
 ```
 
 ## Build On GitHub
@@ -58,14 +58,14 @@ Outputs:
 
 ```text
 dist\Plume\
-dist\installer\Plume-Setup-0.4.20.exe
+dist\installer\Plume-Setup-0.4.21.exe
 ```
 
 ## User Install Flow
 
 For a normal user:
 
-1. Download `Plume-Setup-0.4.20.exe`.
+1. Download `Plume-Setup-0.4.21.exe`.
 2. Run the installer.
 3. Launch `Plume`.
 4. Choose a model.

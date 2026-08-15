@@ -272,7 +272,8 @@
       <div class="card--flat">
         <div class="inner">
           <div class="eyebrow">Historique local</div>
-          <div class="history" id="history"></div>
+          <div class="field" style="margin-bottom:8px"><input id="historySearch" placeholder="Rechercher dans l'historique…" /></div>
+          <div class="history" id="history" style="max-height:260px"></div>
           <p class="muted-note">Les dernières dictées restent sur ce PC pour pouvoir recopier ou recoller en cas de mauvais focus.</p>
         </div>
       </div>
@@ -317,12 +318,20 @@
             <button class="hotcap" id="hotcap">Ctrl + Espace</button>
           </div>
           <div class="row">
+            <div><div class="lbl">Maintenir pour parler</div><div class="sub">Tenir le raccourci au lieu d'appuyer deux fois</div></div>
+            <div class="tg" id="tgPtt" role="switch" aria-checked="false" aria-label="Maintenir pour parler" tabindex="0"></div>
+          </div>
+          <div class="row">
             <div><div class="lbl">Position de la bulle</div><div class="sub">Indicateur d'écoute</div></div>
             <select id="bubble"><option value="bottom">En bas</option><option value="top">En haut</option></select>
           </div>
           <div class="row">
             <div><div class="lbl">Collage automatique</div><div class="sub">Coller dans l'app active</div></div>
             <div class="tg on" id="tgPaste" role="switch" aria-checked="true" aria-label="Collage automatique" tabindex="0"></div>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Retour sonore</div><div class="sub">Bip discret au début/fin d'enregistrement</div></div>
+            <div class="tg on" id="tgSound" role="switch" aria-checked="true" aria-label="Retour sonore" tabindex="0"></div>
           </div>
           <div class="row">
             <div><div class="lbl">Démarrer avec Windows</div><div class="sub">Lancer Plume au démarrage</div></div>
@@ -408,6 +417,7 @@
     api.set_setting("model", model.value);
   });
   const tgPaste=document.getElementById("tgPaste"), tgStartup=document.getElementById("tgStartup");
+  const tgPtt=document.getElementById("tgPtt"), tgSound=document.getElementById("tgSound");
   function wireToggle(el, settingKey){
     const flip=()=>{ const on=el.classList.toggle("on"); el.setAttribute("aria-checked", on); api.set_setting(settingKey, on); };
     el.addEventListener("click", flip);
@@ -415,13 +425,16 @@
   }
   wireToggle(tgPaste, "autopaste");
   wireToggle(tgStartup, "autostart");
+  wireToggle(tgPtt, "push_to_talk");
+  wireToggle(tgSound, "sound_feedback");
 
   function applyConfig(c){ if(!c) return;
     const set=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
+    const setTg=(el,v)=>{ el.classList.toggle("on", !!v); el.setAttribute("aria-checked", !!v); };
     set("lang",c.language); set("model",c.model); set("bubble",c.bubble_position);
     set("cleanup",c.cleanup); set("compute",c.compute); set("profile",c.profile);
-    tgPaste.classList.toggle("on", !!c.autopaste); tgPaste.setAttribute("aria-checked", !!c.autopaste);
-    tgStartup.classList.toggle("on", !!c.autostart); tgStartup.setAttribute("aria-checked", !!c.autostart);
+    setTg(tgPaste, c.autopaste); setTg(tgStartup, c.autostart);
+    setTg(tgPtt, c.push_to_talk); setTg(tgSound, c.sound_feedback !== false);
     if(c.hotkey_display){ document.getElementById("hotcap").textContent=c.hotkey_display; document.getElementById("hotHint").textContent=c.hotkey_display; }
   }
   window.addEventListener("pywebviewready", ()=>{
@@ -493,25 +506,27 @@
   });
 
   const historyEl=document.getElementById("history");
+  const historySearch=document.getElementById("historySearch");
   function shortTime(ts){ try{return new Date(ts).toLocaleString([], {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});}catch{return "";} }
   function renderHistory(){ historyEl.innerHTML="";
     if(!state.history.length){ historyEl.innerHTML='<div class="transcript empty">Aucune dictée récente.</div>'; return; }
-    state.history.slice(0,3).forEach((h,i)=>{ const row=document.createElement("div"); row.className="histitem";
+    const query=(historySearch && historySearch.value || "").trim().toLowerCase();
+    // Keep the original index (needed by api.copy_history/paste_history,
+    // which index into the full un-filtered history) even though a search
+    // query shows a subset of rows.
+    const entries=state.history.map((h,i)=>({h,i})).filter(({h})=>!query || (h.text||"").toLowerCase().includes(query));
+    if(!entries.length){ historyEl.innerHTML='<div class="transcript empty">Aucun résultat.</div>'; return; }
+    entries.forEach(({h,i})=>{ const row=document.createElement("div"); row.className="histitem";
       row.innerHTML=`<div><div class="histtext"></div><div class="histtime">${shortTime(h.timestamp)}</div></div>
         <button class="iconbtn" title="Copier" data-copy="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         <button class="iconbtn" title="Recoller" data-paste="${i}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8l2 2v14H6V6l2-2Z"/><path d="M9 12h6M9 16h6"/></svg></button>`;
       row.querySelector(".histtext").textContent=h.text || "";
       historyEl.appendChild(row);
     });
-    if(state.history.length>3){
-      const more=document.createElement("div");
-      more.className="transcript empty";
-      more.textContent=`${state.history.length-3} ancienne(s) dictée(s) masquée(s)`;
-      historyEl.appendChild(more);
-    }
     historyEl.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",()=>api.copy_history(+b.dataset.copy)));
     historyEl.querySelectorAll("[data-paste]").forEach(b=>b.addEventListener("click",()=>api.paste_history(+b.dataset.paste)));
   }
+  historySearch && historySearch.addEventListener("input", renderHistory);
 
   const hotcap=document.getElementById("hotcap");
   hotcap.addEventListener("click", ()=>{ hotcap.textContent="Tape la combinaison…";

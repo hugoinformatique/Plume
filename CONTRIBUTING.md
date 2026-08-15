@@ -83,9 +83,11 @@ with `Plume-Setup-<version>.exe` attached.
 4. Watch the run: `gh run list --repo hugoinformatique/Plume --limit 3` or the
    **Actions** tab. On success the installer appears under **Releases**.
 
-The active development branch is `feat/plume-pluggable-backends` — that's
-where the workflow file and all releases since v0.3.0 live. `main` is stale
-and does not currently have the CI workflow at all; don't tag from it.
+`main` is the only active branch — it was fast-forwarded to the tip of
+`feat/plume-pluggable-backends` and all work (commits, tags, releases)
+happens there from now on. `feat/plume-pluggable-backends` is kept around
+for now as a historical pointer but should not receive new commits; it may
+be deleted later.
 
 ## Code signing (reducing SmartScreen/antivirus warnings)
 

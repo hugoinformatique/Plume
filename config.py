@@ -28,6 +28,8 @@ DEFAULTS = {
     "autopaste": True,
     "autostart": False,
     "metrics": True,               # benchmark log (removable later)
+    "push_to_talk": False,         # hold hotkey to record instead of press-to-toggle
+    "sound_feedback": True,        # short beep on start/stop, independent of the bubble
     "vocabulary": [],              # list of {"from": str, "to": str}
     "history": [],                 # last local dictations, never leaves the PC
 }
@@ -60,8 +62,15 @@ class Config:
         return cls(data)
 
     def save(self) -> None:
+        # Write-then-rename instead of writing the file in place: an
+        # interrupted write (crash, forced kill, antivirus scan mid-write)
+        # can otherwise leave config.json truncated, which makes the next
+        # load() silently fall back to full DEFAULTS and looks like every
+        # setting got reset. os.replace is atomic on the same filesystem.
         try:
-            self.path.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+            tmp = self.path.with_suffix(self.path.suffix + ".tmp")
+            tmp.write_text(json.dumps(self.data, ensure_ascii=False, indent=2), encoding="utf-8")
+            os.replace(tmp, self.path)
         except Exception:
             pass
 
