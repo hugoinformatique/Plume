@@ -37,7 +37,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.12"
+APP_VERSION = "0.4.13"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 
@@ -98,7 +98,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.12' or '0.4.12'."""
+    """Return a comparable numeric version tuple from 'v0.4.13' or '0.4.13'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -671,7 +671,10 @@ class PlumeApp:
             width=252, height=64, resizable=False, frameless=True,
             on_top=True, transparent=True, background_color="#111318", hidden=True, focus=False,
         )
-        webview.start(self._on_started, debug=False)
+        # BENCHMARK MODE (temporary, remove after testing): debug=True enables
+        # right-click "Inspect"/"Afficher les outils de developpement" so JS
+        # errors are actually visible instead of failing completely silently.
+        webview.start(self._on_started, debug=True)
 
 
 def _create_window(title, url, **kwargs):

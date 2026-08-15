@@ -5,6 +5,16 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.13
+
+- Still no `benchmark-inapp.log` created after a clean reinstall + relaunch
+  (ruled out a stale locked process from a previous version). Since the
+  Python-side logging added in v0.4.12 never fires, the failure must be on
+  the JS side of the bridge, invisible until now: `webview.start(...,
+  debug=True)` — enables right-click "Inspect"/"Afficher les outils de
+  developpement" so real JS console errors are finally visible instead of
+  failing completely silently.
+
 ## v0.4.12
 
 - Root-caused v0.4.11's "nothing happens, 0% CPU/network" report: the log
