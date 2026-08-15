@@ -14,6 +14,20 @@ Goal:
 
 This is not polished software. It is a benchmarkable MVP for testing latency and quality on Windows PCs.
 
+## Documentation
+
+| Doc | What's in it |
+|---|---|
+| [GUIDE_TEST.md](GUIDE_TEST.md) | (français) Get the installer, run it, report back — the doc for a non-dev tester. |
+| [TESTING_WINDOWS.md](TESTING_WINDOWS.md) | Full manual test procedure for the console/tray apps and model comparison. |
+| [APP_WINDOWS.md](APP_WINDOWS.md) | What the legacy Tk tray app (`tray_app.py`) does and how to run it. |
+| [INSTALLER_WINDOWS.md](INSTALLER_WINDOWS.md) | How the Windows installer is built (PyInstaller + Inno Setup) and what it produces. |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code map: modules, the UI<->Python bridge, packaging, where data lives. |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `config.json` schema, vocabulary/correction-dictionary format, hotkey format. |
+| [docs/BENCHMARKING.md](docs/BENCHMARKING.md) | The three ways to measure speed/quality: in-app Bench tab, CLI `benchmark.py`, real-usage `perflog.py`. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, coding conventions, how to cut a release. |
+| [CHANGELOG.md](CHANGELOG.md) | Version history. |
+
 ## V2 Windows App
 
 The desktop test app is:
