@@ -28,9 +28,10 @@ that share the same core:
 - **`plume.py`** — the current product. A pywebview app: native Python core
   (audio, engine, global hotkey, paste, tray, autostart, self-update) plus an
   embedded web view for the UI (`ui/index.html`). The floating "listening"
-  pill is a native Tk window (`floating_bubble.py`), not a web view: as a
-  second frameless/transparent pywebview window it never showed up reliably
-  on Windows.
+  pill is a native Tk window (`floating_bubble.py`) featuring a liquid glass &
+  water-droplet design (multi-layer optical depth, 3D droplet indicator bead,
+  voice-reactive fluid wave ripples). It runs in its own thread, never takes focus,
+  and degrades to a no-op if Tk is missing.
 - **`tray_app.py`** — legacy Tk-based test app, kept for reference/testing but
   not the shipped product. Uses `listening_bubble.py`, its own older Tk bubble.
 - **`dictate.py`** — bare console MVP (F9 start/stop, Esc quit), useful for
@@ -46,8 +47,8 @@ that share the same core:
 | `config.py` | Persistent per-user settings (`Config`, backed by `%APPDATA%\Plume\config.json` on Windows, `~/.config/plume` elsewhere), hotkey display-string <-> pynput format conversion. |
 | `vocabulary.py` | User correction dictionary: biases recognition (`hotwords`/`initial_prompt`) and post-corrects known mis-hearings. |
 | `ui_theme.py` | Shared design tokens (colors, font) and the procedurally-drawn feather app icon (used for the tray icon and window icon; also generates `assets/plume.ico`/`.png` at build time via `scripts/make_icons.py`). |
-| `floating_bubble.py` | The shipped floating "listening" pill: a native Tk window with its own Tk loop in a daemon thread, driven from any thread through a command queue. Draggable, never takes focus, degrades to a no-op if Tk is missing. |
-| `listening_bubble.py` | Older Tk-canvas pill — legacy, used by `tray_app.py` only (it owns the Tk main loop itself). |
+| `floating_bubble.py` | The shipped floating "listening" pill: a native Tk window with liquid glass / water droplet optics, 3D droplet indicator, and voice-reactive fluid wave ripples. Runs its own Tk loop in a daemon thread, driven from any thread through a command queue. Draggable, never takes focus, degrades to a no-op if Tk is missing. |
+| `listening_bubble.py` | Tk-canvas liquid glass pill — legacy, used by `tray_app.py` only (it owns the Tk main loop itself). |
 | `benchmark.py` | CLI: sweep backend x device x model x file combinations on `samples/` and write `benchmark-results/results.csv`. |
 | `perflog.py` | CLI: summarize/tail the `metrics.csv` history the app writes per real dictation (see [BENCHMARKING.md](BENCHMARKING.md)). |
 

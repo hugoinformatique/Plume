@@ -66,9 +66,7 @@ The current product UI is:
 python plume.py
 ```
 
-It adds the glass UI, voice-reactive bubble, configurable hotkey, local history,
-spoken punctuation commands, correction dictionary, and advanced CPU/iGPU/NPU
-profiles.
+It adds the glass UI, the liquid glass water-droplet listening bubble (voice-reactive fluid waves), configurable hotkey, push-to-talk, local history, spoken punctuation commands, correction dictionary, and advanced CPU/iGPU/NPU profiles.
 
 ## Windows Installer
 
