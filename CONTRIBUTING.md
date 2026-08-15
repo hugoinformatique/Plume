@@ -86,3 +86,30 @@ with `Plume-Setup-<version>.exe` attached.
 The active development branch is `feat/plume-pluggable-backends` — that's
 where the workflow file and all releases since v0.3.0 live. `main` is stale
 and does not currently have the CI workflow at all; don't tag from it.
+
+## Code signing (reducing SmartScreen/antivirus warnings)
+
+The installer isn't signed, so Windows shows an "unknown publisher" warning
+and some antivirus/EDR software scrutinizes it more heavily on first run —
+this is a real friction point for the enterprise deployment target, not
+cosmetic. A [LICENSE](LICENSE) (MIT) alone doesn't fix this; **only a code
+signing certificate does.** Two paths, in order of preference:
+
+1. **Free, for open source projects**: [SignPath.io](https://signpath.io)
+   signs open source releases at no cost. Requirements this repo already
+   meets or now meets: public repository, OSI-approved license (MIT, added).
+   Still needed: apply on signpath.io, get approved, wire their CI action
+   into `.github/workflows/windows-installer.yml` to sign
+   `dist/installer/*.exe` before it's attached to the release. This requires
+   an account and approval from a human maintainer — not something to
+   automate blindly.
+2. **Paid certificate**: an OV (~$100-400/year) or EV
+   (~$300-500/year, near-instant SmartScreen reputation) Authenticode
+   certificate from any CA (DigiCert, SSL.com, etc.), then sign
+   `dist/installer/*.exe` in CI with `signtool sign /a /fd sha256
+   /tr <timestamp-url> /td sha256 dist\installer\Plume-Setup-*.exe` as a
+   build step, using a certificate stored as a GitHub Actions secret.
+
+Either way, expect the *first* unsigned or newly-signed builds to still get
+flagged by some engines until reputation builds up — that's normal and not
+something a single fix resolves overnight.

@@ -1,5 +1,7 @@
 # Plume
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Windows-first MVP for local voice dictation.
 
 > **Just want to test it?** See [GUIDE_TEST.md](GUIDE_TEST.md) (français) — how to get the installer, run it, and report back.
