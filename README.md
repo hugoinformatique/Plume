@@ -234,6 +234,10 @@ The MVP uses local inference. It does not call an API for transcription.
 
 Important caveat: the first run may download the selected model from Hugging Face through `faster-whisper`. For an enterprise/offline version, models should be pre-bundled or installed once from an approved internal package.
 
+## Roadmap
+
+See [docs/ROADMAP.md](docs/ROADMAP.md) for upcoming prioritized features (Live Preview in the liquid bubble, Instant Translation FR->EN, enhanced voice editing commands).
+
 ## Notes
 
 - CPU (`faster-whisper`) is the reliable baseline and default.
