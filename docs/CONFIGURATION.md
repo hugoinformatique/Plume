@@ -11,9 +11,8 @@ reinstalls and is never bundled with the app.
 | Other (dev/testing) | `~/.config/plume/config.json` |
 
 The same directory (`config.config_dir()`) also holds `metrics.csv` (see
-[BENCHMARKING.md](BENCHMARKING.md)), `recordings/` (temporary wav files), and,
-while the temporary benchmark tab exists, `benchmark-clip.wav` and
-`benchmark-inapp.csv`.
+[BENCHMARKING.md](BENCHMARKING.md)) and `recordings/` (transient wav files,
+deleted right after each transcription).
 
 Read/write goes through `config.Config` (`config.py`): `Config.load()` reads
 the file and fills in any missing key from `DEFAULTS`; `Config.set(key,

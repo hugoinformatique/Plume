@@ -24,7 +24,7 @@ This is not polished software. It is a benchmarkable MVP for testing latency and
 | [INSTALLER_WINDOWS.md](INSTALLER_WINDOWS.md) | How the Windows installer is built (PyInstaller + Inno Setup) and what it produces. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code map: modules, the UI<->Python bridge, packaging, where data lives. |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `config.json` schema, vocabulary/correction-dictionary format, hotkey format. |
-| [docs/BENCHMARKING.md](docs/BENCHMARKING.md) | The three ways to measure speed/quality: in-app Bench tab, CLI `benchmark.py`, real-usage `perflog.py`. |
+| [docs/BENCHMARKING.md](docs/BENCHMARKING.md) | How to measure speed/quality: CLI `benchmark.py` for controlled sweeps, real-usage `perflog.py` for day-to-day trends. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, coding conventions, how to cut a release. |
 | [CHANGELOG.md](CHANGELOG.md) | Version history. |
 
@@ -79,7 +79,7 @@ INSTALLER_WINDOWS.md
 The intended user-facing installer is:
 
 ```text
-Plume-Setup-0.4.16.exe
+Plume-Setup-0.4.18.exe
 ```
 
 ## Quick Start On Windows

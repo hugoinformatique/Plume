@@ -5,6 +5,19 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.18
+
+- Removed the in-app "Bench" tab entirely (all `BENCHMARK MODE (temporary,
+  remove after testing)` blocks in `plume.py` and `ui/index.html`, plus
+  `docs/BENCH_BRIDGE_DEBUG.md`). It never reliably worked on real hardware —
+  `window.pywebview.api` came back empty in the packaged app for reasons
+  never pinned down (see v0.4.11–v0.4.15 for the investigation). CLI
+  `benchmark.py` (unaffected by that bridge) remains the supported way to
+  run a controlled multi-combination comparison; see
+  [docs/BENCHMARKING.md](docs/BENCHMARKING.md). Everything unrelated to the
+  Bench tab from this stretch of releases (auto-update, the bubble fix,
+  recordings cleanup, CPU tuning, the doc set) is kept.
+
 ## v0.4.16
 
 - Startup update check now installs automatically instead of only showing a
@@ -21,9 +34,8 @@ process.
 - Recordings are deleted right after transcription instead of accumulating
   in `recordings/` forever; a startup sweep also clears anything left over
   from a crashed session older than 24h.
-- Parked the in-app Bench tab investigation (deprioritized, see
-  `docs/BENCH_BRIDGE_DEBUG.md`) in favor of the CLI `benchmark.py`, which
-  doesn't depend on the JS bridge at all.
+- Parked the in-app Bench tab investigation (deprioritized). Later fully
+  removed in v0.4.18.
 
 ## v0.4.15
 
@@ -45,7 +57,7 @@ process.
   same timestamp). Root cause suspected at the time: WebView2 keeps a
   persistent browser profile across app versions. `webview.start(...,
   private_mode=True)` forced a clean profile every launch — turned out not
-  to fix it (see v0.4.16).
+  to fix it (see v0.4.15).
 
 ## v0.4.13
 

@@ -172,17 +172,6 @@
   @media (prefers-color-scheme: dark){.chip button:hover{color:#0f1115}}
   .chip button svg{width:11px;height:11px}
   .muted-note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:12px}
-  /* BENCHMARK MODE (temporary, remove after testing) */
-  .benchlog{font-family:ui-monospace,Consolas,"SFMono-Regular",monospace;font-size:10.8px;line-height:1.6;
-    color:var(--ink-2);max-height:130px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
-    background:var(--hair-soft);border-radius:10px;padding:8px 10px;margin-top:8px}
-  .benchtable{width:100%;border-collapse:collapse;font-size:11.5px}
-  .benchtable th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-    color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--hair-soft);position:sticky;top:0;background:inherit}
-  .benchtable td{padding:6px 8px;border-bottom:1px solid var(--hair-soft);color:var(--ink);
-    max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .benchtable tr:hover td{background:var(--hair-soft)}
-  /* /BENCHMARK MODE */
 
   .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 2px}
   .row + .row{border-top:1px solid var(--hair-soft)}
@@ -252,12 +241,6 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"/><circle cx="16" cy="8" r="2.4"/><circle cx="8" cy="16" r="2.4"/></svg>
         Réglages
       </button>
-      <!-- BENCHMARK MODE (temporary, remove after testing) -->
-      <button data-tab="benchmark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M12 20V4M20 20v-6"/></svg>
-        Bench
-      </button>
-      <!-- /BENCHMARK MODE -->
     </div>
 
     <div class="updatebar" id="updateBar">
@@ -381,36 +364,6 @@
       </div>
     </section>
 
-    <!-- BENCHMARK MODE (temporary, remove after testing) -->
-    <section class="panel" id="tab-benchmark">
-      <div class="card--flat">
-        <div class="inner">
-          <div class="eyebrow">1. Extrait de test</div>
-          <p class="muted-note" style="margin-top:0">Un seul extrait, réutilisé pour toutes les combinaisons ci-dessous — comparaison à audio identique.</p>
-          <button class="smallbtn" id="benchRecBtn" style="width:100%;margin-top:8px">Enregistrer un extrait test</button>
-        </div>
-      </div>
-      <div class="card--flat">
-        <div class="inner">
-          <div class="eyebrow">2. Toutes les combinaisons</div>
-          <p class="muted-note" style="margin-top:0" id="benchNote">faster-whisper × modèles × compute-types, + OpenVINO × NPU/GPU/CPU sur les modèles déjà convertis dans models/openvino/. Un modèle jamais utilisé peut être long à charger (téléchargement). Si rien ne bouge ici, ouvre %APPDATA%\Plume\benchmark-inapp.log — il est écrit sur disque en direct, indépendamment de cette fenêtre.</p>
-          <button class="smallbtn" id="benchRun" style="width:100%;margin-top:8px" disabled>Lancer le benchmark complet</button>
-          <div class="hero" style="padding:8px 0 0"><div class="status" id="benchStatus" style="font-weight:600">Enregistre un extrait pour commencer.</div></div>
-          <div class="benchlog" id="benchLog"></div>
-        </div>
-      </div>
-      <div class="card--flat" style="flex:1;overflow:hidden;display:flex">
-        <div class="inner" style="overflow:auto;flex:1">
-          <div class="eyebrow">Résultats</div>
-          <table class="benchtable" id="benchTable">
-            <thead><tr><th>moteur</th><th>device</th><th>modèle</th><th>compute</th><th>temps</th><th>rtf</th><th>texte</th></tr></thead>
-            <tbody></tbody>
-          </table>
-          <p class="muted-note" id="benchCsvNote"></p>
-        </div>
-      </div>
-    </section>
-    <!-- /BENCHMARK MODE -->
   </main>
 
 <script>
@@ -583,63 +536,6 @@
   };
   renderChips();
   renderHistory();
-
-  // ==== BENCHMARK MODE (temporary, remove after testing) ===================
-  (function(){
-    const recBtn=document.getElementById("benchRecBtn"), runBtn=document.getElementById("benchRun");
-    const statusEl=document.getElementById("benchStatus"), noteEl=document.getElementById("benchNote");
-    const csvEl=document.getElementById("benchCsvNote"), tbody=document.querySelector("#benchTable tbody");
-    const logEl=document.getElementById("benchLog");
-    if(!recBtn || !runBtn) return;
-    let recording=false;
-    recBtn.addEventListener("click", ()=>{
-      if(!recording){
-        recording=true; recBtn.textContent="Arrêter l'enregistrement";
-        statusEl.textContent="Enregistrement… parle 5-10s puis reclique.";
-        api.bench_record_start();
-      } else {
-        recording=false; recBtn.textContent="Enregistrer un extrait test";
-        statusEl.textContent="Traitement…";
-        api.bench_record_stop().then(r=>{
-          if(r && r.ok){ statusEl.textContent="Extrait prêt. Lance le benchmark."; runBtn.disabled=false; }
-          else { statusEl.textContent="Erreur: "+(r && r.message || "inconnue"); runBtn.disabled=true; }
-        });
-      }
-    });
-    runBtn.addEventListener("click", ()=>{
-      tbody.innerHTML=""; runBtn.disabled=true; recBtn.disabled=true;
-      statusEl.textContent="Démarrage…";
-      if(logEl) logEl.textContent="";
-      if(csvEl) csvEl.textContent="";
-      api.run_benchmark();
-    });
-    window.plumeBench = {
-      setStatus:(t)=>{ statusEl.textContent=t; },
-      note:(t)=>{ if(noteEl) noteEl.textContent=t; },
-      log:(line)=>{
-        if(!logEl) return;
-        logEl.textContent += (logEl.textContent?"\n":"")+line;
-        // Keep the box from growing unbounded on a very long run.
-        const lines=logEl.textContent.split("\n");
-        if(lines.length>400) logEl.textContent=lines.slice(-400).join("\n");
-        logEl.scrollTop=logEl.scrollHeight;
-      },
-      addRow:(row)=>{
-        const tr=document.createElement("tr");
-        const cell=(v)=>{ const td=document.createElement("td"); td.textContent=v==null?"":v; return td; };
-        tr.appendChild(cell(row.backend)); tr.appendChild(cell(row.device)); tr.appendChild(cell(row.model));
-        tr.appendChild(cell(row.compute)); tr.appendChild(cell(row.seconds+"s")); tr.appendChild(cell(row.rtf));
-        const txt=cell(row.text); txt.title=row.text||""; tr.appendChild(txt);
-        tbody.appendChild(tr);
-      },
-      setDone:(csvPath)=>{
-        statusEl.textContent="Terminé.";
-        runBtn.disabled=false; recBtn.disabled=false;
-        if(csvEl) csvEl.textContent = csvPath ? ("Résultats enregistrés dans "+csvPath) : "";
-      },
-    };
-  })();
-  // ==== /BENCHMARK MODE =======================================================
 </script>
 </body>
 </html>

@@ -53,10 +53,13 @@ add product features to the latter.
   Hugging Face download in `faster-whisper`. This is a hard product
   requirement for the enterprise/offline positioning — see README
   ["Privacy Positioning"](README.md#privacy-positioning).
-- **Temporary/throwaway code** (like the in-app benchmark tab) should be
-  wrapped in clearly labeled markers (`BEGIN/END <NAME> (temporary, remove
-  after X)`) and land in its own commit, so it can be found and reverted
-  cleanly later.
+- **Temporary/throwaway code** should be wrapped in clearly labeled markers
+  (`BEGIN/END <NAME> (temporary, remove after X)`) and land in its own
+  commit, so it can be found and reverted cleanly later. (An in-app
+  benchmark tab was tried this way and later removed wholesale when the
+  pywebview JS bridge turned out not to expose it reliably on packaged
+  builds — the marker convention made that removal a clean, mechanical
+  diff instead of an archaeology dig.)
 
 ## Releasing
 

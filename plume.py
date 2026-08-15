@@ -25,7 +25,6 @@ import webview
 from sttlocal import DictationEngine, Recorder, clean_transcript, copy_text, paste_text
 from config import Config, config_dir, hotkey_to_pynput
 from vocabulary import Vocabulary
-from backends import create_backend  # BENCHMARK MODE (temporary, remove after testing)
 
 
 # UI 'profile' value -> (backend, device)
@@ -37,26 +36,9 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.16"
+APP_VERSION = "0.4.18"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
-
-
-# ==== BENCHMARK MODE (temporary, remove after testing) =======================
-BENCH_CLIP_PATH = config_dir() / "benchmark-clip.wav"
-BENCH_FW_MODELS = ["base", "small", "medium", "turbo"]
-BENCH_FW_COMPUTE_TYPES = ["int8", "int8_float16", "float32"]
-BENCH_OV_DEVICES = ["NPU", "GPU", "CPU"]
-
-
-def discover_openvino_models() -> list[str]:
-    """Any subfolder under models/openvino/ is assumed to be a converted
-    OpenVINO IR model (see README "OpenVINO / NPU" / optimum-cli export)."""
-    base = Path("models") / "openvino"
-    if not base.exists():
-        return []
-    return [str(p) for p in sorted(base.iterdir()) if p.is_dir()]
-# ==== /BENCHMARK MODE ==========================================================
 
 
 def resource_dir() -> str:
@@ -98,7 +80,7 @@ def set_autostart(enable: bool) -> None:
 
 
 def version_key(version: str) -> tuple[int, ...]:
-    """Return a comparable numeric version tuple from 'v0.4.16' or '0.4.16'."""
+    """Return a comparable numeric version tuple from 'v0.4.18' or '0.4.18'."""
     cleaned = version.strip().lower().lstrip("v")
     return tuple(int(part) for part in re.findall(r"\d+", cleaned))
 
@@ -160,9 +142,6 @@ class PlumeApp:
         self.metrics_path = config_dir() / "metrics.csv"
         self.recordings_dir = config_dir() / "recordings"
         self._update_info: dict | None = None
-        # BENCHMARK MODE (temporary, remove after testing)
-        self.bench_recorder = Recorder()
-        self._bench_running = False
 
     # ---- engine (kept warm) -------------------------------------------------
     def _engine_params(self) -> tuple:
@@ -325,7 +304,7 @@ class PlumeApp:
         (e.g. the app crashed mid-run before the per-file cleanup above ran).
         Runs at startup so leftover recordings never silently accumulate."""
         cutoff = time.time() - max_age_hours * 3600
-        for folder in (self.recordings_dir, config_dir() / "bench-tmp"):
+        for folder in (self.recordings_dir,):
             try:
                 if not folder.exists():
                     continue
@@ -370,176 +349,6 @@ class PlumeApp:
                             len(text), len(self.vocab.terms())])
         except Exception:
             pass
-
-    # ==== BENCHMARK MODE (temporary, remove after testing) ===================
-    def bench_record_start(self) -> None:
-        self._bench_log("Clic 'Enregistrer' — ouverture du micro…")
-        try:
-            self.bench_recorder.start()
-            self._bench_log("Micro ouvert, capture en cours.")
-        except Exception as exc:  # noqa: BLE001
-            # sounddevice/PortAudio errors (no input device, permission
-            # denied by Windows privacy settings, device in use...) used to
-            # propagate silently past the JS bridge since this method has no
-            # return value the click handler awaits. Log it so it's visible
-            # even though the UI can't show it for this specific call.
-            self._bench_log(f"ERREUR à l'ouverture du micro : {exc}")
-
-    def bench_record_stop(self) -> dict:
-        self._bench_log("Clic 'Arrêter' — fin de capture…")
-        if not self.bench_recorder.is_recording:
-            msg = "Le micro n'a jamais démarré (voir le log ci-dessus / benchmark-inapp.log)."
-            self._bench_log(msg)
-            return {"ok": False, "message": msg}
-        try:
-            path = self.bench_recorder.stop_to_wav(config_dir() / "bench-tmp")
-        except Exception as exc:  # noqa: BLE001
-            self._bench_log(f"ERREUR à l'arrêt du micro : {exc}")
-            return {"ok": False, "message": str(exc)}
-        if path is None:
-            msg = "Enregistrement trop court (< 0.25s) — reclique et parle un peu plus longtemps."
-            self._bench_log(msg)
-            return {"ok": False, "message": msg}
-        try:
-            if BENCH_CLIP_PATH.exists():
-                BENCH_CLIP_PATH.unlink()
-            path.replace(BENCH_CLIP_PATH)
-        except Exception as exc:  # noqa: BLE001
-            self._bench_log(f"ERREUR en sauvegardant l'extrait : {exc}")
-            return {"ok": False, "message": str(exc)}
-        self._bench_log(f"Extrait sauvegardé : {BENCH_CLIP_PATH}")
-        return {"ok": True, "path": str(BENCH_CLIP_PATH)}
-
-    def run_benchmark(self) -> None:
-        self._bench_log("Clic 'Lancer le benchmark complet'.")
-        if self._bench_running:
-            self._bench_log("Un run est déjà en cours, clic ignoré.")
-            return
-        if not BENCH_CLIP_PATH.exists():
-            msg = "Enregistre un extrait test d'abord (aucun fichier trouvé)."
-            self._bench_log(msg)
-            self._js(self.window, f"window.plumeBench && plumeBench.setStatus({json.dumps(msg)})")
-            return
-        self._bench_running = True
-        threading.Thread(target=self._run_benchmark_matrix, daemon=True).start()
-
-    def _bench_emit_row(self, backend, device, model, compute, result=None, error=None) -> dict:
-        row = {"backend": backend, "device": device, "model": model, "compute": compute}
-        if error is not None:
-            row.update({"seconds": "", "rtf": "", "text": f"ERREUR: {error}"})
-        else:
-            rtf = result.rtf
-            row.update({
-                "seconds": f"{result.elapsed:.2f}",
-                "rtf": f"{rtf:.2f}" if rtf is not None else "",
-                "text": result.text,
-            })
-        self._js(self.window, f"window.plumeBench && plumeBench.addRow({json.dumps(row)})")
-        return row
-
-    def _bench_log(self, message: str) -> None:
-        line = f"{datetime.now().strftime('%H:%M:%S')} — {message}"
-        # Push to the UI (best-effort — evaluate_js can silently no-op if the
-        # page/bridge isn't in a state to receive it) AND write to a plain
-        # log file, so progress is visible even if the JS side never updates.
-        self._js(self.window, f"window.plumeBench && plumeBench.log({json.dumps(line)})")
-        try:
-            with (config_dir() / "benchmark-inapp.log").open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-        except Exception:
-            pass
-
-    @staticmethod
-    def _fw_model_cached(model_name: str) -> bool:
-        """Best-effort check of the Hugging Face cache so we can warn before
-        a combo that's about to try downloading a model from the internet."""
-        try:
-            cache_root = Path.home() / ".cache" / "huggingface" / "hub"
-            return (cache_root / f"models--Systran--faster-whisper-{model_name}").exists()
-        except Exception:
-            return False
-
-    def _run_benchmark_matrix(self) -> None:
-        # Everything is wrapped so a crash anywhere (e.g. a bad model path)
-        # always resets _bench_running and is reported in the log, instead of
-        # dying silently in the background thread and leaving the UI stuck
-        # with no feedback and the Lancer button permanently disabled.
-        # (The log file is append-only across the session on purpose — it
-        # keeps the record-clip steps that happened right before this run.)
-        try:
-            self._run_benchmark_matrix_inner()
-        except Exception as exc:  # noqa: BLE001
-            self._bench_log(f"Le benchmark s'est arrêté sur une erreur inattendue : {exc}")
-            self._js(self.window, "window.plumeBench && plumeBench.setDone('')")
-        finally:
-            self._bench_running = False
-
-    def _run_benchmark_matrix_inner(self) -> None:
-        # Without this, a stalled network connection (e.g. a proxy silently
-        # dropping the request) can leave huggingface_hub's download hanging
-        # for a very long time with zero feedback. This bounds it so a dead
-        # connection fails fast and the sweep moves on to the next combo.
-        os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "20")
-
-        rows = []
-        language = self.config.get("language")
-        language = None if str(language).lower() == "auto" else language
-
-        combos = [
-            ("faster-whisper", "cpu", model, compute)
-            for model in BENCH_FW_MODELS
-            for compute in BENCH_FW_COMPUTE_TYPES
-        ]
-        ov_models = discover_openvino_models()
-        combos += [
-            ("openvino", device, model, "int8")
-            for model in ov_models
-            for device in BENCH_OV_DEVICES
-        ]
-        if not ov_models:
-            note = "Aucun modèle OpenVINO trouvé sous models/openvino/ — seul faster-whisper est testé."
-            self._js(self.window, f"window.plumeBench && plumeBench.note({json.dumps(note)})")
-
-        total = len(combos)
-        self._bench_log(f"Démarrage : {total} combinaisons à tester sur {BENCH_CLIP_PATH.name}.")
-        self._bench_log(f"Journal aussi écrit dans : {config_dir() / 'benchmark-inapp.log'}")
-        for i, (backend, device, model, compute) in enumerate(combos, 1):
-            label = f"{backend}/{device}/{model}/{compute}"
-            self._js(self.window, f"window.plumeBench && plumeBench.setStatus({json.dumps(f'({i}/{total}) {label}')})")
-            if backend == "faster-whisper":
-                cache_note = "en cache local" if self._fw_model_cached(model) else "PAS en cache — va télécharger depuis internet"
-                self._bench_log(f"({i}/{total}) {label} — chargement du modèle ({cache_note})…")
-            else:
-                self._bench_log(f"({i}/{total}) {label} — chargement du modèle…")
-            try:
-                started_load = time.perf_counter()
-                engine = create_backend(backend, model, device, compute, language)
-                engine.load()
-                load_s = time.perf_counter() - started_load
-                self._bench_log(f"({i}/{total}) {label} — modèle chargé en {load_s:.1f}s, transcription…")
-                result = engine.transcribe(BENCH_CLIP_PATH)
-                row = self._bench_emit_row(backend, device, model, compute, result=result)
-                rtf_txt = f", rtf={result.rtf:.2f}" if result.rtf is not None else ""
-                self._bench_log(f"({i}/{total}) {label} — OK en {result.elapsed:.2f}s{rtf_txt}")
-            except Exception as exc:  # noqa: BLE001
-                row = self._bench_emit_row(backend, device, model, compute, error=str(exc))
-                self._bench_log(f"({i}/{total}) {label} — ERREUR : {exc}")
-            rows.append(row)
-
-        out_path = None
-        try:
-            out_path = config_dir() / "benchmark-inapp.csv"
-            with out_path.open("w", newline="", encoding="utf-8") as fh:
-                w = csv.DictWriter(fh, fieldnames=["backend", "device", "model", "compute", "seconds", "rtf", "text"])
-                w.writeheader()
-                w.writerows(rows)
-        except Exception as exc:  # noqa: BLE001
-            self._bench_log(f"Impossible d'écrire le CSV : {exc}")
-            out_path = None
-
-        self._bench_log("Benchmark terminé.")
-        self._js(self.window, f"window.plumeBench && plumeBench.setDone({json.dumps(str(out_path) if out_path else '')})")
-    # ==== /BENCHMARK MODE ======================================================
 
     # ---- hotkey -------------------------------------------------------------
     def _install_hotkey(self) -> None:
@@ -717,11 +526,6 @@ class PlumeApp:
             width=252, height=64, resizable=False, frameless=True,
             on_top=True, transparent=True, background_color="#111318", hidden=True, focus=False,
         )
-        # BENCHMARK MODE (temporary, remove after testing): debug was True
-        # to get devtools access for the bridge investigation
-        # (docs/BENCH_BRIDGE_DEBUG.md) -- reverted to False since it's the
-        # prime suspect for the floating bubble window (transparent,
-        # frameless) no longer showing.
         webview.start(self._on_started, debug=False)
 
 
@@ -837,17 +641,6 @@ class Api:
     def install_update(self):
         threading.Thread(target=self.app._download_and_launch_update, daemon=True).start()
         return {"started": True}
-
-    # ==== BENCHMARK MODE (temporary, remove after testing) ===================
-    def bench_record_start(self):
-        self.app.bench_record_start()
-
-    def bench_record_stop(self):
-        return self.app.bench_record_stop()
-
-    def run_benchmark(self):
-        self.app.run_benchmark()
-    # ==== /BENCHMARK MODE ======================================================
 
 
 def main() -> int:
