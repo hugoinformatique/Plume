@@ -1,9 +1,9 @@
 """A floating "listening" bubble shown while Plume records/transcribes (Tkinter legacy).
 
 Liquid Glass / Water Droplet (Goutte d'eau) aesthetic:
-A frameless, always-on-top translucent liquid glass pill with optical depth,
-convex specular glares, volumetric refractions, a breathing 3D water-droplet bead,
-and voice-reactive fluid wave ripples.
+Strictly achromatic monochrome palette (pure blacks, smoked glass depths,
+convex specular highlights, and crisp pure whites). No hue/color accents.
+Ultra-fluid 120Hz-ready animation loop with viscous liquid wave physics.
 
 Everything here must be called from the Tk main thread.
 """
@@ -23,37 +23,39 @@ RADIUS = 30              # organic fluid pebble / water droplet curvature
 BAR_COUNT = 7            # 7 voice-reactive fluid wave ripples
 BAR_W = 5.0              # rounded droplet capsule width
 BAR_GAP = 11.5
-BAR_MAX = 19.0
-EASE_UP = 0.38
-EASE_DOWN = 0.22
+BAR_MAX = 18.5
 
-# Liquid Glass / Water Droplet Optics Palette
-SHADOW_DEPTH = "#030508"         # soft contact shadow beneath the droplet
-GLASS_BASE = "#0C0F17"           # smoked liquid glass body
-GLASS_CORE = "#121724"           # inner refracted liquid volume
-GLASS_CRESCENT = "#192233"       # top convex meniscus glare polygon
-SPECULAR_TOP = "#3B5270"         # soft top curvature highlight arc
-SPECULAR_PEAK = "#82A7CF"        # bright light streak along the top rim
-SPECULAR_CORE = "#E2F0FD"        # pure brilliance apex highlight
-CAUSTIC_BOTTOM = "#172233"       # bottom internal caustic light reflection
-MENISCUS_BORDER = "#2A384C"      # luminous glass surface tension rim
+# 120Hz / High-Refresh-Rate fluid easing
+FRAME_MS = 12
+EASE_UP = 0.26
+EASE_DOWN = 0.14
 
-TEXT_LIVE = "#F8FAFC"
-TEXT_SPIN = "#94A3B8"
+# Strictly Achromatic Liquid Glass Monochrome Palette
+SHADOW_DEPTH = "#000000"
+GLASS_BASE = "#0F0F0F"
+GLASS_INNER = "#171717"
+GLASS_DOME = "#222222"
+SPECULAR_CRESCENT = "#2C2C2C"
+SPECULAR_ARC = "#555555"
+SPECULAR_STREAK = "#AAAAAA"
+SPECULAR_APEX = "#FFFFFF"
+CAUSTIC_LIP = "#242424"
+MENISCUS_BORDER = "#3A3A3A"
+
+TEXT_LIVE = "#FFFFFF"
+TEXT_SPIN = "#8E8E8E"
 TEXT_DONE = "#FFFFFF"
 
-AURA_LIVE = "#063328"
-LIVE_CORE = "#00F5B8"
-LIVE_BAR_CENTER = "#00F5B8"
-LIVE_BAR_FLANK = "#14B8A6"
+AURA_LIVE = "#242424"
+LIVE_CORE = "#FFFFFF"
+LIVE_BAR = "#FFFFFF"
 
-AURA_SPIN = "#111C2E"
-SPIN_CORE = "#38BDF8"
-SPIN_CORE_ALT = "#818CF8"
-SPIN_BAR_ACTIVE = "#38BDF8"
-SPIN_BAR_DIM = "#1E293B"
+AURA_SPIN = "#1C1C1C"
+SPIN_CORE = "#B0B0B0"
+SPIN_BAR_ACTIVE = "#FFFFFF"
+SPIN_BAR_DIM = "#3A3A3A"
 
-AURA_DONE = "#0369A1"
+AURA_DONE = "#333333"
 DONE_CORE = "#FFFFFF"
 DONE_BAR = "#FFFFFF"
 
@@ -153,33 +155,33 @@ class ListeningBubble:
         # 3. Inner Liquid Volume / Refracted Depth Core
         self.canvas.create_polygon(
             _rr_points(4, 4, BUBBLE_W - 4, BUBBLE_H - 5, RADIUS - 2),
-            smooth=True, fill=GLASS_CORE, outline="",
+            smooth=True, fill=GLASS_INNER, outline="",
         )
 
-        # 4. Top Convex Specular Glare (Signature Water Droplet Curvature)
+        # 4. Top Convex Specular Glare Dome
         self.canvas.create_polygon(
             _specular_crescent_points(BUBBLE_W, BUBBLE_H, RADIUS),
-            smooth=True, fill=GLASS_CRESCENT, outline="",
+            smooth=True, fill=SPECULAR_CRESCENT, outline="",
         )
 
         # 5. Specular Reflection Lines along the Upper Arc
         self.canvas.create_line(
             RADIUS * 0.7, 3.5, BUBBLE_W - RADIUS * 0.7, 3.5,
-            fill=SPECULAR_TOP, width=1.5, capstyle="round",
+            fill=SPECULAR_ARC, width=1.5, capstyle="round",
         )
         self.canvas.create_line(
             cx_mid - 45, 3.5, cx_mid + 45, 3.5,
-            fill=SPECULAR_PEAK, width=1.2, capstyle="round",
+            fill=SPECULAR_STREAK, width=1.2, capstyle="round",
         )
         self.canvas.create_line(
-            cx_mid - 15, 3.5, cx_mid + 15, 3.5,
-            fill=SPECULAR_CORE, width=1.0, capstyle="round",
+            cx_mid - 18, 3.5, cx_mid + 18, 3.5,
+            fill=SPECULAR_APEX, width=1.0, capstyle="round",
         )
 
         # 6. Bottom Caustic Refraction (Internal Lens Reflection)
         self.canvas.create_line(
             RADIUS * 0.9, BUBBLE_H - 4.5, BUBBLE_W - RADIUS * 0.9, BUBBLE_H - 4.5,
-            fill=CAUSTIC_BOTTOM, width=1.2, capstyle="round",
+            fill=CAUSTIC_LIP, width=1.2, capstyle="round",
         )
 
         # 7. Meniscus Surface Tension Rim (Crisp Glass Edge)
@@ -193,7 +195,7 @@ class ListeningBubble:
         self.dot = self.canvas.create_oval(23, cy - 5, 33, cy + 5, fill=LIVE_CORE, outline="")
         self.dot_spec = self.canvas.create_oval(25, cy - 3.5, 27.5, cy - 1.0, fill="#FFFFFF", outline="")
 
-        # 9. Modern Typography
+        # 9. Modern High-Contrast Typography
         self.label_id = self.canvas.create_text(
             48, cy - 0.5, anchor="w", fill=TEXT_LIVE,
             font=(FONT_UI, 11, "bold"), text="",
@@ -205,11 +207,9 @@ class ListeningBubble:
         base_x = BUBBLE_W - 24 - total
         for i in range(BAR_COUNT):
             cx = base_x + i * BAR_GAP
-            dist_from_center = abs(i - (BAR_COUNT - 1) / 2.0)
-            bar_fill = mix(LIVE_BAR_CENTER, LIVE_BAR_FLANK, dist_from_center / 3.0)
             item = self.canvas.create_polygon(
                 _capsule_points(cx, cy, BAR_W / 2.0, BAR_W),
-                smooth=True, fill=bar_fill, outline="",
+                smooth=True, fill=LIVE_BAR, outline="",
             )
             self.bars.append((item, cx))
 
@@ -248,10 +248,8 @@ class ListeningBubble:
             self.canvas.itemconfigure(self.dot, fill=LIVE_CORE)
             self.canvas.itemconfigure(self.dot_spec, fill="#FFFFFF")
             self.canvas.itemconfigure(self.label_id, fill=TEXT_LIVE)
-            for i, (item, _cx) in enumerate(self.bars):
-                dist = abs(i - (BAR_COUNT - 1) / 2.0)
-                color = mix(LIVE_BAR_CENTER, LIVE_BAR_FLANK, dist / 3.0)
-                self.canvas.itemconfigure(item, fill=color)
+            for item, _cx in self.bars:
+                self.canvas.itemconfigure(item, fill=LIVE_BAR)
         elif state == "transcribing":
             self.canvas.itemconfigure(self.dot_halo, fill=AURA_SPIN)
             self.canvas.itemconfigure(self.dot, fill=SPIN_CORE)
@@ -290,7 +288,7 @@ class ListeningBubble:
             self.root.after_cancel(self._hide_id)
         self._hide_id = self.root.after(delay_ms, self.hide)
 
-    # --- animation -----------------------------------------------------------
+    # --- animation & 120Hz fluid dynamics ------------------------------------
     def _targets(self) -> list[float]:
         floor = BAR_W / 2.0
         if self._state == "listening":
@@ -303,9 +301,9 @@ class ListeningBubble:
             out = []
             center_idx = (BAR_COUNT - 1) / 2.0
             for i in range(BAR_COUNT):
-                ripple_phase = self._phase * 1.5 + (i - center_idx) * 0.6
-                wave_shimmer = 0.45 + 0.55 * math.sin(ripple_phase)
-                idle_breath = 1.2 + 0.9 * (0.5 + 0.5 * math.sin(self._phase * 0.8 + i * 0.45))
+                ripple_phase = self._phase * 1.3 + (i - center_idx) * 0.55
+                wave_shimmer = 0.50 + 0.50 * math.sin(ripple_phase)
+                idle_breath = 1.1 + 0.8 * (0.5 + 0.5 * math.sin(self._phase * 0.7 + i * 0.4))
                 dist = abs(i - center_idx) / center_idx
                 center_weight = 1.0 - 0.28 * (dist ** 2)
                 voice_surge = level * BAR_MAX * wave_shimmer * center_weight
@@ -314,14 +312,14 @@ class ListeningBubble:
 
         if self._state == "transcribing":
             out = []
-            head = (self._phase * 0.85) % (BAR_COUNT + 2) - 1
+            head = (self._phase * 0.75) % (BAR_COUNT + 2) - 1
             for i in range(BAR_COUNT):
                 d = abs(i - head)
-                out.append(floor + 1.5 + 11.0 * math.exp(-(d * d) / 1.3))
+                out.append(floor + 1.2 + 10.5 * math.exp(-(d * d) / 1.3))
             return out
 
         if self._state == "done":
-            return [floor + 2.5] * BAR_COUNT
+            return [floor + 2.2] * BAR_COUNT
 
         return [floor] * BAR_COUNT
 
@@ -329,23 +327,20 @@ class ListeningBubble:
         if self._state == "hidden":
             self._anim_id = None
             return
-        self._phase += 0.20
+        self._phase += 0.12
         cy = BUBBLE_H / 2.0
 
         try:
             # 1. Animate Liquid Droplet Bead
             if self._state == "transcribing":
-                r = 2.8
-                ox = 28.0 + r * math.cos(self._phase * 2.0)
-                oy = cy + r * math.sin(self._phase * 2.0)
-                pr = 4.0
-                halo_r = pr + 3.5
-                hue_t = 0.5 + 0.5 * math.sin(self._phase * 1.5)
-                vortex_color = mix(SPIN_CORE, SPIN_CORE_ALT, hue_t)
-                self.canvas.itemconfigure(self.dot, fill=vortex_color)
+                r = 2.6
+                ox = 28.0 + r * math.cos(self._phase * 1.8)
+                oy = cy + r * math.sin(self._phase * 1.8)
+                pr = 3.8
+                halo_r = pr + 3.2
             elif self._state == "done":
-                pr = 5.8
-                halo_r = 9.0
+                pr = 5.5
+                halo_r = 8.5
                 ox, oy = 28.0, cy
             else:
                 level = 0.0
@@ -354,22 +349,22 @@ class ListeningBubble:
                         level = max(0.0, min(1.0, float(self._level_provider())))
                     except Exception:
                         level = 0.0
-                pr = 4.4 + 1.4 * (0.5 + 0.5 * math.sin(self._phase * 1.6)) + level * 1.6
-                halo_r = pr + 3.2 + level * 4.5
+                pr = 4.2 + 1.3 * (0.5 + 0.5 * math.sin(self._phase * 1.4)) + level * 1.5
+                halo_r = pr + 3.0 + level * 4.0
                 ox, oy = 28.0, cy
 
             self.canvas.coords(self.dot_halo, ox - halo_r, oy - halo_r, ox + halo_r, oy + halo_r)
             self.canvas.coords(self.dot, ox - pr, oy - pr, ox + pr, oy + pr)
-            spec_r = pr * 0.32
+            spec_r = pr * 0.30
             self.canvas.coords(
                 self.dot_spec,
                 ox - pr * 0.55 - spec_r, oy - pr * 0.55 - spec_r,
                 ox - pr * 0.55 + spec_r, oy - pr * 0.55 + spec_r,
             )
 
-            # 2. Animate Fluid Wave Ripples
+            # 2. Animate Viscous Fluid Wave Ripples
             targets = self._targets()
-            head = (self._phase * 0.85) % (BAR_COUNT + 2) - 1
+            head = (self._phase * 0.75) % (BAR_COUNT + 2) - 1
             for i, (item, cx) in enumerate(self.bars):
                 target = targets[i]
                 ease = EASE_UP if target > self.bar_vals[i] else EASE_DOWN
@@ -386,4 +381,4 @@ class ListeningBubble:
         except Exception:
             return
 
-        self._anim_id = self.root.after(33, self._animate)
+        self._anim_id = self.root.after(FRAME_MS, self._animate)

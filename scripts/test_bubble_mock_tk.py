@@ -25,18 +25,18 @@ class TestFloatingBubbleWithMockTk(unittest.TestCase):
 
         self.mock_root.winfo_screenwidth.return_value = 1920
         self.mock_root.winfo_screenheight.return_value = 1080
-
-        self.bubble._tk = self.mock_tk
-        self.bubble._root = self.mock_root
-        self.bubble._win = self.mock_win
-        self.bubble._canvas = self.mock_canvas
-
-    def test_ensure_win_and_build(self):
-        # Reset win so ensure_win runs
-        self.bubble._win = None
         self.mock_tk.Toplevel.return_value = self.mock_win
         self.mock_tk.Canvas.return_value = self.mock_canvas
 
+        self.bubble._tk = self.mock_tk
+        self.bubble._root = self.mock_root
+        self.bubble._ensure_win()
+
+    def test_ensure_win_and_build(self):
+        # Reset win and mock so ensure_win runs
+        self.bubble._win = None
+        self.mock_tk.reset_mock()
+        self.mock_canvas.reset_mock()
         ok = self.bubble._ensure_win()
         self.assertTrue(ok)
         self.mock_tk.Toplevel.assert_called_once_with(self.mock_root)

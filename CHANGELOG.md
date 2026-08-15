@@ -7,12 +7,12 @@ process.
 
 ## v0.4.26
 
-- **Design « Goutte d'eau & Liquid Glass » pour la bulle flottante.**
-  Refonte visuelle et cinématique complète de la bulle (`floating_bubble.py` et `listening_bubble.py`) :
-  - **Optique multicouche liquide** : galet organique 276x68 (rayon 30 px), ombre de contact douce (`#030508`), corps en verre fumé liquide (`#0C0F17` / `#121724`), croissant de réflexion spéculaire zénithal (`#192233` + arc `#3B5270` + traînée `#82A7CF` + pointe d'éclat `#E2F0FD`) simulant la courbure convexe d'une goutte d'eau, caustique inférieure (`#172233`) et ménisque de surface (`#2A384C`).
-  - **Perle d'eau & indicateur 3D** : halo liquide respirant, perle d'eau aqua/menthe luminescente (`#00F5B8` / `#2DD4BF`) à l'écoute, vortex liquide océanique en orbite chromatique (`#38BDF8` ↔ `#818CF8`) en transcription, éclat diamant pur (`#FFFFFF`) lors du collage, et micro-point spéculaire 3D zénithal.
-  - **Égaliseur d'ondes fluides** : 7 capsules réactives à la voix avec physique de rides de surface (dispersion sinusoïdale de phase, répartition parabolique centrée, amortissement visqueux asymétrique avec attaque vive et retombée flottante).
-  - Typographie moderne haute lisibilité et conservation totale de la non-activation de focus (`WS_EX_NOACTIVATE`) et du déplacement à la souris.
+- **Design « Goutte d'eau & Liquid Glass » sobre (Noir & Blanc, 120 Hz).**
+  Refonte visuelle et cinématique complète de la bulle (`floating_bubble.py` et `listening_bubble.py`) inspirée des boutons de verre liquide :
+  - **Palette 100 % achromatique (DA Noir & Blanc sobre)** : aucun accent coloré, uniquement du noir profond (`#000000`, `#0F0F0F`), du verre fumé translucide (`#171717`, `#222222`), des reflets spéculaires zénithaux (`#2C2C2C`, `#555555`, `#AAAAAA`, `#FFFFFF`) et des barres d'égaliseur blanc pur (`#FFFFFF`).
+  - **Optique de verre liquide convexe** : galet organique 276x68 (rayon 30 px), ombre de contact douce au sol, dôme de réflexion supérieur avec croissant de verre poli et traînée brillante au sommet, caustique interne inférieure et ménisque de surface net.
+  - **Fluidité 120 Hz & physique liquide** : boucle haute fréquence (`FRAME_MS = 12`, ~85-100 fps réels), amortissement visqueux asymétrique (`EASE_UP = 0.26`, `EASE_DOWN = 0.14`), dispersion de phase continue sur les 7 capsules d'ondes vocales et respiration liquide subtile sans aucune saccade.
+  - **Perle de verre 3D & typographie** : perle blanche zénithale avec micro-reflet spéculaire 3D, orbiteur liquide fluide en transcription, libellés haute lisibilité ("Segoe UI", blanc pur / gris doux) et conservation de la non-activation de focus (`WS_EX_NOACTIVATE`) et du déplacement à la souris.
 
 ## v0.4.25
 

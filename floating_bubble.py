@@ -1,9 +1,9 @@
 """Native Tk floating "listening" bubble, self-contained and thread-safe.
 
 Liquid Glass / Water Droplet (Goutte d'eau) aesthetic:
-A frameless, always-on-top translucent liquid glass pill with optical depth,
-convex specular glares, volumetric refractions, a breathing 3D water-droplet bead,
-and voice-reactive fluid wave ripples.
+Strictly achromatic monochrome palette (pure blacks, translucent smoked glass,
+convex specular highlights, and crisp pure whites). No hue/color accents.
+Ultra-fluid 120Hz-ready animation loop with viscous liquid wave physics.
 
 Plume's main thread belongs to ``webview.start()``, so this module owns its
 *own* Tk root running in its own daemon thread. Every public method may be
@@ -25,7 +25,7 @@ import threading
 from config import debug_log
 from ui_theme import FONT_UI, mix
 
-# --- geometry / look ---------------------------------------------------------
+# --- Geometry & Fluid Timing -------------------------------------------------
 CHROMA = "#010101"       # transparent-color key -> rounded corners on Windows
 BUBBLE_W = 276
 BUBBLE_H = 68
@@ -35,47 +35,45 @@ MARGIN = 40              # distance from the top/bottom edge of the work area
 BAR_COUNT = 7            # 7 voice-reactive fluid wave ripples
 BAR_W = 5.0              # rounded droplet capsule width
 BAR_GAP = 11.5
-BAR_MAX = 19.0           # max amplitude (half-height, keeps bars inside the pill)
-EASE_UP = 0.38           # responsive liquid crest rise
-EASE_DOWN = 0.22         # buoyant, floaty fluid descent
+BAR_MAX = 18.5           # max amplitude (half-height, keeps bars inside the pill)
 
-FRAME_MS = 33            # ~30 fps
-PUMP_MS = 30             # cross-thread command poll (cheap, not a busy loop)
+# 120Hz / High-Refresh-Rate fluid easing (tuned for 10-12ms frame interval)
+FRAME_MS = 12            # ~85-100 fps ultra-fluid animation loop
+PUMP_MS = 25             # cross-thread command poll
+EASE_UP = 0.26           # smooth, viscous liquid crest rise
+EASE_DOWN = 0.14         # buoyant, floaty fluid descent
 
-# --- Liquid Glass / Water Droplet Optics Palette -----------------------------
-# Deep obsidian liquid glass with subtle midnight refraction
-SHADOW_DEPTH = "#030508"         # soft contact shadow beneath the droplet
-GLASS_BASE = "#0C0F17"           # smoked liquid glass body
-GLASS_CORE = "#121724"           # inner refracted liquid volume
-GLASS_CRESCENT = "#192233"       # top convex meniscus glare polygon
-SPECULAR_TOP = "#3B5270"         # soft top curvature highlight arc
-SPECULAR_PEAK = "#82A7CF"        # bright light streak along the top rim
-SPECULAR_CORE = "#E2F0FD"        # pure brilliance apex highlight
-CAUSTIC_BOTTOM = "#172233"       # bottom internal caustic light reflection
-MENISCUS_BORDER = "#2A384C"      # luminous glass surface tension rim
+# --- Liquid Glass Monochrome Palette (DA: Noir & Blanc sobre) ----------------
+# Strictly achromatic: pure blacks, smoked glass depths, and brilliant white reflections
+SHADOW_DEPTH = "#000000"         # soft contact shadow beneath the glass droplet
+GLASS_BASE = "#0F0F0F"           # dark obsidian liquid glass body
+GLASS_INNER = "#171717"          # inner refracted glass volume
+GLASS_DOME = "#222222"           # ambient inner glass illumination
+SPECULAR_CRESCENT = "#2C2C2C"    # top convex meniscus glare polygon
+SPECULAR_ARC = "#555555"         # upper glass curvature reflection band
+SPECULAR_STREAK = "#AAAAAA"      # intense specular light streak
+SPECULAR_APEX = "#FFFFFF"        # pure brilliant white reflection apex
+CAUSTIC_LIP = "#242424"          # bottom internal reflection bounce
+MENISCUS_BORDER = "#3A3A3A"      # crisp glass surface tension rim
 
-# States: Liquid Aqua/Mint (Listening) -> Oceanic Vortex (Transcribing) -> Crystal Flash (Done)
-TEXT_LIVE = "#F8FAFC"            # crisp crystalline white label
-TEXT_SPIN = "#94A3B8"            # softened translucent label
+# Typography
+TEXT_LIVE = "#FFFFFF"            # crisp pure white label
+TEXT_SPIN = "#8E8E8E"            # softened translucent label
 TEXT_DONE = "#FFFFFF"            # pure white confirmation
 
-# Listening state tokens
-AURA_LIVE = "#063328"            # breathing liquid aura
-LIVE_CORE = "#00F5B8"            # glowing aqua-mint water droplet bead
-LIVE_BAR_CENTER = "#00F5B8"      # center wave peaks
-LIVE_BAR_FLANK = "#14B8A6"       # outer wave bars
+# Monochrome States (Listening / Transcribing / Done)
+AURA_LIVE = "#242424"            # breathing liquid aura
+LIVE_CORE = "#FFFFFF"            # brilliant white liquid droplet bead
+LIVE_BAR = "#FFFFFF"             # crisp pure white wave bars
 
-# Transcribing state tokens
-AURA_SPIN = "#111C2E"            # oceanic halo
-SPIN_CORE = "#38BDF8"            # sapphire-cyan vortex droplet
-SPIN_CORE_ALT = "#818CF8"        # dynamic vortex phase hue
-SPIN_BAR_ACTIVE = "#38BDF8"      # traveling wave crest
-SPIN_BAR_DIM = "#1E293B"         # dimmed wave baseline
+AURA_SPIN = "#1C1C1C"            # subtle transcribing halo
+SPIN_CORE = "#B0B0B0"            # smooth monochrome orbiter
+SPIN_BAR_ACTIVE = "#FFFFFF"      # traveling wave crest
+SPIN_BAR_DIM = "#3A3A3A"         # dimmed wave baseline
 
-# Done state tokens
-AURA_DONE = "#0369A1"            # crystalline flash aura
-DONE_CORE = "#FFFFFF"            # diamond droplet
-DONE_BAR = "#FFFFFF"             # confirmation wave
+AURA_DONE = "#333333"            # confirmation flash aura
+DONE_CORE = "#FFFFFF"            # pure white diamond droplet
+DONE_BAR = "#FFFFFF"             # pure white confirmation wave
 
 
 def _rr_points(x1: float, y1: float, x2: float, y2: float, r: float) -> list[float]:
@@ -100,7 +98,7 @@ def _capsule_points(cx: float, cy: float, half_h: float, w: float) -> list[float
 
 
 def _specular_crescent_points(w: float, h: float, r: float) -> list[float]:
-    """Convex top specular highlight polygon mimicking curved water drop glare."""
+    """Convex top specular highlight polygon mimicking curved liquid glass button glare."""
     x1, y1, x2, y2 = 4.0, 3.0, w - 4.0, h * 0.42
     cr = r * 0.85
     return [
@@ -372,7 +370,7 @@ class FloatingBubble:
         return True
 
     def _build(self, canvas) -> None:
-        """Construct multi-layer liquid glass / water drop optics."""
+        """Construct multi-layer liquid glass / water drop optics in pure monochrome."""
         cy = BUBBLE_H / 2.0
         cx_mid = BUBBLE_W / 2.0
 
@@ -382,7 +380,7 @@ class FloatingBubble:
             smooth=True, fill=SHADOW_DEPTH, outline="",
         )
 
-        # 2. Smoked Liquid Glass Body
+        # 2. Smoked Liquid Glass Body (Obsidian Dark Base)
         canvas.create_polygon(
             _rr_points(2, 2, BUBBLE_W - 2, BUBBLE_H - 3, RADIUS),
             smooth=True, fill=GLASS_BASE, outline="",
@@ -391,33 +389,33 @@ class FloatingBubble:
         # 3. Inner Liquid Volume / Refracted Depth Core
         canvas.create_polygon(
             _rr_points(4, 4, BUBBLE_W - 4, BUBBLE_H - 5, RADIUS - 2),
-            smooth=True, fill=GLASS_CORE, outline="",
+            smooth=True, fill=GLASS_INNER, outline="",
         )
 
-        # 4. Top Convex Specular Glare (Signature Water Droplet Curvature)
+        # 4. Top Convex Specular Glare Dome (Signature Liquid Glass Button Crescent)
         canvas.create_polygon(
             _specular_crescent_points(BUBBLE_W, BUBBLE_H, RADIUS),
-            smooth=True, fill=GLASS_CRESCENT, outline="",
+            smooth=True, fill=SPECULAR_CRESCENT, outline="",
         )
 
-        # 5. Specular Reflection Lines along the Upper Arc
+        # 5. Specular Reflection Lines along the Upper Arc (Glass Sheen)
         canvas.create_line(
             RADIUS * 0.7, 3.5, BUBBLE_W - RADIUS * 0.7, 3.5,
-            fill=SPECULAR_TOP, width=1.5, capstyle="round",
+            fill=SPECULAR_ARC, width=1.5, capstyle="round",
         )
         canvas.create_line(
             cx_mid - 45, 3.5, cx_mid + 45, 3.5,
-            fill=SPECULAR_PEAK, width=1.2, capstyle="round",
+            fill=SPECULAR_STREAK, width=1.2, capstyle="round",
         )
         canvas.create_line(
-            cx_mid - 15, 3.5, cx_mid + 15, 3.5,
-            fill=SPECULAR_CORE, width=1.0, capstyle="round",
+            cx_mid - 18, 3.5, cx_mid + 18, 3.5,
+            fill=SPECULAR_APEX, width=1.0, capstyle="round",
         )
 
         # 6. Bottom Caustic Refraction (Internal Lens Reflection)
         canvas.create_line(
             RADIUS * 0.9, BUBBLE_H - 4.5, BUBBLE_W - RADIUS * 0.9, BUBBLE_H - 4.5,
-            fill=CAUSTIC_BOTTOM, width=1.2, capstyle="round",
+            fill=CAUSTIC_LIP, width=1.2, capstyle="round",
         )
 
         # 7. Meniscus Surface Tension Rim (Crisp Glass Edge)
@@ -426,7 +424,7 @@ class FloatingBubble:
             smooth=True, fill="", outline=MENISCUS_BORDER, width=1,
         )
 
-        # 8. Liquid Status Droplet Bead (Glow Aura + Fluid Core + 3D Specular Highlight)
+        # 8. Liquid Status Droplet Bead (Glow Aura + Pure White Bead + 3D Specular Highlight)
         self._dot_halo = canvas.create_oval(19, cy - 8, 37, cy + 8, fill=AURA_LIVE, outline="")
         self._dot = canvas.create_oval(23, cy - 5, 33, cy + 5, fill=LIVE_CORE, outline="")
         self._dot_spec = canvas.create_oval(25, cy - 3.5, 27.5, cy - 1.0, fill="#FFFFFF", outline="")
@@ -443,12 +441,9 @@ class FloatingBubble:
         base_x = BUBBLE_W - 24 - total
         for i in range(BAR_COUNT):
             cx = base_x + i * BAR_GAP
-            # Dynamic initial gradient: Center bars are luminous mint, flanking bars are teal
-            dist_from_center = abs(i - (BAR_COUNT - 1) / 2.0)
-            bar_fill = mix(LIVE_BAR_CENTER, LIVE_BAR_FLANK, dist_from_center / 3.0)
             item = canvas.create_polygon(
                 _capsule_points(cx, cy, BAR_W / 2.0, BAR_W),
-                smooth=True, fill=bar_fill, outline="",
+                smooth=True, fill=LIVE_BAR, outline="",
             )
             self._bars.append((item, cx))
 
@@ -507,10 +502,8 @@ class FloatingBubble:
             self._canvas.itemconfigure(self._dot, fill=LIVE_CORE)
             self._canvas.itemconfigure(self._dot_spec, fill="#FFFFFF")
             self._canvas.itemconfigure(self._label, fill=TEXT_LIVE)
-            for i, (item, _cx) in enumerate(self._bars):
-                dist = abs(i - (BAR_COUNT - 1) / 2.0)
-                color = mix(LIVE_BAR_CENTER, LIVE_BAR_FLANK, dist / 3.0)
-                self._canvas.itemconfigure(item, fill=color)
+            for item, _cx in self._bars:
+                self._canvas.itemconfigure(item, fill=LIVE_BAR)
         elif state == "transcribing":
             self._canvas.itemconfigure(self._dot_halo, fill=AURA_SPIN)
             self._canvas.itemconfigure(self._dot, fill=SPIN_CORE)
@@ -629,7 +622,7 @@ class FloatingBubble:
             except Exception as exc:
                 debug_log(f"bubble: on_move callback failed ({exc!r})")
 
-    # --- Tk thread: animation & fluid dynamics -------------------------------
+    # --- Tk thread: animation & 120Hz fluid dynamics -------------------------
     def _targets(self) -> list[float]:
         floor = BAR_W / 2.0
         if self._state == "listening":
@@ -638,11 +631,11 @@ class FloatingBubble:
             center_idx = (BAR_COUNT - 1) / 2.0
             for i in range(BAR_COUNT):
                 # Ripple dispersion across fluid surface
-                ripple_phase = self._phase * 1.5 + (i - center_idx) * 0.6
-                wave_shimmer = 0.45 + 0.55 * math.sin(ripple_phase)
+                ripple_phase = self._phase * 1.3 + (i - center_idx) * 0.55
+                wave_shimmer = 0.50 + 0.50 * math.sin(ripple_phase)
 
                 # Ambient living liquid breath (calm water surface)
-                idle_breath = 1.2 + 0.9 * (0.5 + 0.5 * math.sin(self._phase * 0.8 + i * 0.45))
+                idle_breath = 1.1 + 0.8 * (0.5 + 0.5 * math.sin(self._phase * 0.7 + i * 0.4))
 
                 # Fluid acoustic crest (parabolic center concentration)
                 dist = abs(i - center_idx) / center_idx
@@ -653,16 +646,16 @@ class FloatingBubble:
             return out
 
         if self._state == "transcribing":
-            # Silky continuous liquid traveling wave
+            # Silky continuous traveling wave sweep
             out = []
-            head = (self._phase * 0.85) % (BAR_COUNT + 2) - 1
+            head = (self._phase * 0.75) % (BAR_COUNT + 2) - 1
             for i in range(BAR_COUNT):
                 d = abs(i - head)
-                out.append(floor + 1.5 + 11.0 * math.exp(-(d * d) / 1.3))
+                out.append(floor + 1.2 + 10.5 * math.exp(-(d * d) / 1.3))
             return out
 
         if self._state == "done":
-            return [floor + 2.5] * BAR_COUNT
+            return [floor + 2.2] * BAR_COUNT
 
         return [floor] * BAR_COUNT
 
@@ -670,48 +663,43 @@ class FloatingBubble:
         self._anim_id = None
         if not self._visible or self._canvas is None:
             return
-        self._phase += 0.20
+        # Smooth phase advance tailored for high frame rates
+        self._phase += 0.12
         cy = BUBBLE_H / 2.0
 
         try:
-            # 1. Animate the Liquid Droplet Bead
+            # 1. Animate the Monochrome Liquid Droplet Bead
             if self._state == "transcribing":
-                # Oceanic liquid vortex orbit
-                r = 2.8
-                ox = 28.0 + r * math.cos(self._phase * 2.0)
-                oy = cy + r * math.sin(self._phase * 2.0)
-                pr = 4.0
-                halo_r = pr + 3.5
-
-                # Fluid chromatic shift during vortex
-                hue_t = 0.5 + 0.5 * math.sin(self._phase * 1.5)
-                vortex_color = mix(SPIN_CORE, SPIN_CORE_ALT, hue_t)
-                self._canvas.itemconfigure(self._dot, fill=vortex_color)
-
+                # Silky liquid orbit
+                r = 2.6
+                ox = 28.0 + r * math.cos(self._phase * 1.8)
+                oy = cy + r * math.sin(self._phase * 1.8)
+                pr = 3.8
+                halo_r = pr + 3.2
             elif self._state == "done":
-                # Crystalline confirmation flash
-                pr = 5.8
-                halo_r = 9.0
+                # Pure white diamond confirmation
+                pr = 5.5
+                halo_r = 8.5
                 ox, oy = 28.0, cy
             else:
-                # Listening: breathing liquid droplet + reactive aura
-                pr = 4.4 + 1.4 * (0.5 + 0.5 * math.sin(self._phase * 1.6)) + self._level * 1.6
-                halo_r = pr + 3.2 + self._level * 4.5
+                # Listening: breathing pure white droplet + reactive halo
+                pr = 4.2 + 1.3 * (0.5 + 0.5 * math.sin(self._phase * 1.4)) + self._level * 1.5
+                halo_r = pr + 3.0 + self._level * 4.0
                 ox, oy = 28.0, cy
 
-            # Update Droplet + Aura + Specular Pinpoint Coords
+            # Update Droplet + Halo + Specular Highlight Coords
             self._canvas.coords(self._dot_halo, ox - halo_r, oy - halo_r, ox + halo_r, oy + halo_r)
             self._canvas.coords(self._dot, ox - pr, oy - pr, ox + pr, oy + pr)
-            spec_r = pr * 0.32
+            spec_r = pr * 0.30
             self._canvas.coords(
                 self._dot_spec,
                 ox - pr * 0.55 - spec_r, oy - pr * 0.55 - spec_r,
                 ox - pr * 0.55 + spec_r, oy - pr * 0.55 + spec_r,
             )
 
-            # 2. Animate Fluid Wave Ripples (Droplet Equalizer)
+            # 2. Animate Viscous Fluid Wave Ripples (Droplet Equalizer)
             targets = self._targets()
-            head = (self._phase * 0.85) % (BAR_COUNT + 2) - 1
+            head = (self._phase * 0.75) % (BAR_COUNT + 2) - 1
             for i, (item, cx) in enumerate(self._bars):
                 target = targets[i]
                 # Viscous fluid easing: fast crest rise, buoyant fluid descent
@@ -721,7 +709,7 @@ class FloatingBubble:
                     item, *_capsule_points(cx, cy, self._bar_vals[i], BAR_W)
                 )
 
-                # In transcribing mode, highlight the wave crest dynamically
+                # In transcribing mode, highlight the wave crest dynamically in pure monochrome
                 if self._state == "transcribing":
                     d = abs(i - head)
                     crest_t = max(0.0, 1.0 - d / 1.5)
@@ -739,7 +727,7 @@ class FloatingBubble:
 
     def _fade_out(self) -> None:
         self._hide_id = None
-        self._alpha -= 0.14
+        self._alpha -= 0.12
         if self._alpha <= 0.04 or self._win is None:
             self._do_hide()
             return
