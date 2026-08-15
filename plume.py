@@ -386,7 +386,24 @@ class PlumeApp:
         self._js(self.window, f"window.plumeBench && plumeBench.addRow({json.dumps(row)})")
         return row
 
+    def _bench_log(self, message: str) -> None:
+        line = f"{datetime.now().strftime('%H:%M:%S')} — {message}"
+        self._js(self.window, f"window.plumeBench && plumeBench.log({json.dumps(line)})")
+
     def _run_benchmark_matrix(self) -> None:
+        # Everything is wrapped so a crash anywhere (e.g. a bad model path)
+        # always resets _bench_running and is reported in the log, instead of
+        # dying silently in the background thread and leaving the UI stuck
+        # with no feedback and the Lancer button permanently disabled.
+        try:
+            self._run_benchmark_matrix_inner()
+        except Exception as exc:  # noqa: BLE001
+            self._bench_log(f"Le benchmark s'est arrêté sur une erreur inattendue : {exc}")
+            self._js(self.window, "window.plumeBench && plumeBench.setDone('')")
+        finally:
+            self._bench_running = False
+
+    def _run_benchmark_matrix_inner(self) -> None:
         rows = []
         language = self.config.get("language")
         language = None if str(language).lower() == "auto" else language
@@ -407,16 +424,27 @@ class PlumeApp:
             self._js(self.window, f"window.plumeBench && plumeBench.note({json.dumps(note)})")
 
         total = len(combos)
+        self._bench_log(f"Démarrage : {total} combinaisons à tester sur {BENCH_CLIP_PATH.name}.")
         for i, (backend, device, model, compute) in enumerate(combos, 1):
             label = f"{backend}/{device}/{model}/{compute}"
             self._js(self.window, f"window.plumeBench && plumeBench.setStatus({json.dumps(f'({i}/{total}) {label}')})")
+            self._bench_log(
+                f"({i}/{total}) {label} — chargement du modèle… "
+                "(un modèle jamais utilisé peut télécharger plusieurs centaines de Mo, ça peut prendre du temps)"
+            )
             try:
+                started_load = time.perf_counter()
                 engine = create_backend(backend, model, device, compute, language)
                 engine.load()
+                load_s = time.perf_counter() - started_load
+                self._bench_log(f"({i}/{total}) {label} — modèle chargé en {load_s:.1f}s, transcription…")
                 result = engine.transcribe(BENCH_CLIP_PATH)
                 row = self._bench_emit_row(backend, device, model, compute, result=result)
+                rtf_txt = f", rtf={result.rtf:.2f}" if result.rtf is not None else ""
+                self._bench_log(f"({i}/{total}) {label} — OK en {result.elapsed:.2f}s{rtf_txt}")
             except Exception as exc:  # noqa: BLE001
                 row = self._bench_emit_row(backend, device, model, compute, error=str(exc))
+                self._bench_log(f"({i}/{total}) {label} — ERREUR : {exc}")
             rows.append(row)
 
         out_path = None
@@ -426,10 +454,11 @@ class PlumeApp:
                 w = csv.DictWriter(fh, fieldnames=["backend", "device", "model", "compute", "seconds", "rtf", "text"])
                 w.writeheader()
                 w.writerows(rows)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            self._bench_log(f"Impossible d'écrire le CSV : {exc}")
             out_path = None
 
-        self._bench_running = False
+        self._bench_log("Benchmark terminé.")
         self._js(self.window, f"window.plumeBench && plumeBench.setDone({json.dumps(str(out_path) if out_path else '')})")
     # ==== /BENCHMARK MODE ======================================================
 

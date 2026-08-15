@@ -173,6 +173,9 @@
   .chip button svg{width:11px;height:11px}
   .muted-note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:12px}
   /* BENCHMARK MODE (temporary, remove after testing) */
+  .benchlog{font-family:ui-monospace,Consolas,"SFMono-Regular",monospace;font-size:10.8px;line-height:1.6;
+    color:var(--ink-2);max-height:130px;overflow-y:auto;white-space:pre-wrap;word-break:break-word;
+    background:var(--hair-soft);border-radius:10px;padding:8px 10px;margin-top:8px}
   .benchtable{width:100%;border-collapse:collapse;font-size:11.5px}
   .benchtable th{text-align:left;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
     color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--hair-soft);position:sticky;top:0;background:inherit}
@@ -393,6 +396,7 @@
           <p class="muted-note" style="margin-top:0" id="benchNote">faster-whisper × modèles × compute-types, + OpenVINO × NPU/GPU/CPU sur les modèles déjà convertis dans models/openvino/. Un modèle jamais utilisé peut être long à charger (téléchargement).</p>
           <button class="smallbtn" id="benchRun" style="width:100%;margin-top:8px" disabled>Lancer le benchmark complet</button>
           <div class="hero" style="padding:8px 0 0"><div class="status" id="benchStatus" style="font-weight:600">Enregistre un extrait pour commencer.</div></div>
+          <div class="benchlog" id="benchLog"></div>
         </div>
       </div>
       <div class="card--flat" style="flex:1;overflow:hidden;display:flex">
@@ -585,6 +589,7 @@
     const recBtn=document.getElementById("benchRecBtn"), runBtn=document.getElementById("benchRun");
     const statusEl=document.getElementById("benchStatus"), noteEl=document.getElementById("benchNote");
     const csvEl=document.getElementById("benchCsvNote"), tbody=document.querySelector("#benchTable tbody");
+    const logEl=document.getElementById("benchLog");
     if(!recBtn || !runBtn) return;
     let recording=false;
     recBtn.addEventListener("click", ()=>{
@@ -604,11 +609,21 @@
     runBtn.addEventListener("click", ()=>{
       tbody.innerHTML=""; runBtn.disabled=true; recBtn.disabled=true;
       statusEl.textContent="Démarrage…";
+      if(logEl) logEl.textContent="";
+      if(csvEl) csvEl.textContent="";
       api.run_benchmark();
     });
     window.plumeBench = {
       setStatus:(t)=>{ statusEl.textContent=t; },
       note:(t)=>{ if(noteEl) noteEl.textContent=t; },
+      log:(line)=>{
+        if(!logEl) return;
+        logEl.textContent += (logEl.textContent?"\n":"")+line;
+        // Keep the box from growing unbounded on a very long run.
+        const lines=logEl.textContent.split("\n");
+        if(lines.length>400) logEl.textContent=lines.slice(-400).join("\n");
+        logEl.scrollTop=logEl.scrollHeight;
+      },
       addRow:(row)=>{
         const tr=document.createElement("tr");
         const cell=(v)=>{ const td=document.createElement("td"); td.textContent=v==null?"":v; return td; };
