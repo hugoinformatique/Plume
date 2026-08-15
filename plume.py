@@ -36,7 +36,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.26"
+APP_VERSION = "0.4.27"
 GITHUB_REPO_URL = "https://github.com/hugoinformatique/Plume"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 GITHUB_RELEASES_LATEST_URL = f"{GITHUB_REPO_URL}/releases/latest"

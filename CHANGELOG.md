@@ -5,6 +5,13 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v0.4.27
+
+- **Design Liquid Glass monochrome sobre (DA Noir & Blanc, 120 Hz).**
+  - **DA 100 % achromatique** : suppression totale de toute nuance colorée sur la bulle flottante (`floating_bubble.py` et `listening_bubble.py`), palette en noir profond (`#000000`, `#0F0F0F`), verre fumé sombre (`#171717`, `#222222`), reflets spéculaires zénithaux (`#2C2C2C`, `#555555`, `#AAAAAA`, `#FFFFFF`) et barres blanc pur (`#FFFFFF`).
+  - **Fluidité 120 Hz** : boucle d'animation cadencée à 12 ms (~85-100 fps réels), amortissement visqueux asymétrique (`EASE_UP = 0.26`, `EASE_DOWN = 0.14`) et dispersion de phase sinusoïdale continue sans à-coup.
+  - **Feuille de route** : ajout de `docs/ROADMAP.md` consignant les fonctionnalités prioritaires (Mode Traduction instantanée FR➔EN, Live Preview dans la bulle, commandes vocales d'édition et de mise en page d'e-mails).
+
 ## v0.4.26
 
 - **Design « Goutte d'eau & Liquid Glass » sobre (Noir & Blanc, 120 Hz).**

@@ -79,7 +79,7 @@ INSTALLER_WINDOWS.md
 The intended user-facing installer is:
 
 ```text
-Plume-Setup-0.4.26.exe
+Plume-Setup-0.4.27.exe
 ```
 
 ## Quick Start On Windows
