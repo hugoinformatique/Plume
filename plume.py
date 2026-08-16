@@ -7,7 +7,6 @@ window, tray icon and a floating listening bubble.
 
 from __future__ import annotations
 
-import csv
 import json
 import os
 import re
@@ -36,7 +35,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "0.4.28"
+APP_VERSION = "1.0.0"
 GITHUB_REPO_URL = "https://github.com/hugoinformatique/Plume"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 GITHUB_RELEASES_LATEST_URL = f"{GITHUB_REPO_URL}/releases/latest"
@@ -320,7 +319,6 @@ class PlumeApp:
         self.worker: threading.Thread | None = None
         self._level_stop = threading.Event()
         self._last_toggle_at = 0.0
-        self.metrics_path = config_dir() / "metrics.csv"
         self.recordings_dir = config_dir() / "recordings"
         self._update_info: dict | None = None
 
@@ -344,10 +342,39 @@ class PlumeApp:
                     model = str(resolve_model_path(model))
                 engine = DictationEngine(model_name=model, device=device,
                                          compute_type=compute, language=lang, backend=backend)
-                engine.load()
+                try:
+                    engine.load()
+                except BaseException as exc:  # noqa: BLE001
+                    # The shipping engine is the Intel Arc iGPU. profile_blocker
+                    # only proves the runtime and the model files are present --
+                    # it cannot know whether *this* machine actually has a
+                    # usable iGPU, and that only shows up here, as a failed
+                    # load. Dictation must still work on such a machine, so
+                    # degrade to the CPU engine instead of leaving the user with
+                    # an error and no way back (the engine picker is gone).
+                    if backend != "openvino":
+                        raise
+                    _debug_log(f"openvino {device} unusable ({type(exc).__name__}: {exc}), "
+                               "falling back to the CPU engine")
+                    engine = self._cpu_fallback_engine(lang)
+                    key = self._engine_params()
                 self.engine = engine
                 self._engine_key = key
             return self.engine
+
+    def _cpu_fallback_engine(self, lang) -> DictationEngine:
+        """faster-whisper on CPU, persisted so the next start goes straight there."""
+        backend, device = PROFILES["fw-cpu"]
+        c = self.config
+        c.data["backend"], c.data["device"] = backend, device
+        c.data["model"] = "small"
+        c.save()
+        engine = DictationEngine(model_name="small", device=device,
+                                 compute_type=c.get("compute"), language=lang,
+                                 backend=backend)
+        engine.load()
+        self._set_status("Accélération iGPU indisponible sur ce PC : moteur CPU activé.", "Prêt")
+        return engine
 
     def _preload(self) -> None:
         self._set_status("Chargement du modèle…", "…")
@@ -592,7 +619,6 @@ class PlumeApp:
             self._set_transcript(text)
             if text:
                 self._add_history(text)
-            self._log_metric(result, text)
             if text and self.config.get("autopaste"):
                 paste_text(text)
                 self._set_status(f"Collé — {result.elapsed:.1f}s", "Prêt")
@@ -652,25 +678,6 @@ class PlumeApp:
                 break
         self.config.set("history", history)
         self._set_history()
-
-    def _log_metric(self, result, text: str) -> None:
-        if not self.config.get("metrics"):
-            return
-        try:
-            new = not self.metrics_path.exists()
-            with self.metrics_path.open("a", newline="", encoding="utf-8") as fh:
-                w = csv.writer(fh)
-                if new:
-                    w.writerow(["timestamp", "backend", "device", "model", "audio_s",
-                                "elapsed_s", "rtf", "chars", "vocab_terms"])
-                backend, model, device, compute, language = self._engine_params()
-                rtf = result.rtf
-                w.writerow([datetime.now().isoformat(timespec="seconds"), backend, device, model,
-                            f"{result.audio_seconds:.2f}" if result.audio_seconds else "",
-                            f"{result.elapsed:.2f}", f"{rtf:.2f}" if rtf else "",
-                            len(text), len(self.vocab.terms())])
-        except Exception:
-            pass
 
     # ---- hotkey -------------------------------------------------------------
     def _restart(self, engine: "HotkeyEngine | None") -> bool:
@@ -864,25 +871,17 @@ class PlumeApp:
             # l'application") and the update never completes. We close
             # ourselves instead, immediately, which unlocks our own exe for
             # the installer to overwrite.
-            proc = subprocess.Popen([str(dest), "/SILENT", "/NORESTART"])
-            # Inno Setup's postinstall [Run] entry has `skipifsilent`, so it
-            # won't relaunch Plume for us when installed with /SILENT.
-            # We're about to quit, so we can't wait for the installer
-            # ourselves either -- hand that off to a detached watcher
-            # process that outlives us.
-            if getattr(sys, "frozen", False):
-                try:
-                    watcher = (
-                        f"Wait-Process -Id {proc.pid} -ErrorAction SilentlyContinue; "
-                        f"Start-Sleep -Seconds 1; "
-                        f"Start-Process -FilePath '{sys.executable}'"
-                    )
-                    subprocess.Popen(
-                        ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", watcher],
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                    )
-                except Exception:
-                    pass
+            # The installer runs *visibly*, and Inno's own postinstall entry
+            # ("Lancer Plume", `skipifsilent`) puts the app back up afterwards.
+            #
+            # It used to run /SILENT, which meant nothing could relaunch us --
+            # so we spawned a detached, hidden-window PowerShell to wait on the
+            # installer and start the app again. That is textbook EDR bait
+            # (unsigned binary spawns hidden PowerShell that launches another
+            # binary) for a convenience worth a few seconds, on a machine whose
+            # security review we are asking someone to sign off. Showing the
+            # installer is also simply more honest about what is happening.
+            subprocess.Popen([str(dest), "/NORESTART"])
             time.sleep(0.3)
             self.quit()
         except Exception as exc:  # noqa: BLE001
@@ -896,7 +895,12 @@ class PlumeApp:
         self._repair_profile()
         threading.Thread(target=self._preload, daemon=True).start()
         threading.Thread(target=self._cleanup_old_recordings, daemon=True).start()
-        threading.Thread(target=self._auto_update_check, daemon=True).start()
+        # Opt-in only. Out of the box Plume opens no outbound connection at
+        # all: the update check runs when the user enables it, or when they
+        # press "Vérifier". That is the claim the security review is given, so
+        # it has to hold at the only place that could break it.
+        if self.config.get("auto_update"):
+            threading.Thread(target=self._auto_update_check, daemon=True).start()
 
     def _repair_profile(self) -> None:
         """Fall back to the CPU profile if the stored one cannot run here.
@@ -971,6 +975,19 @@ def _create_window(title, url, **kwargs):
         return webview.create_window(title, url, **kwargs)
 
 
+# Api methods whose arguments carry text the user typed or dictated. debug.log
+# is a support artefact that gets sent around by mail and read by third
+# parties, and the deployment security file states it holds no dictated or
+# user-authored text -- so these are logged by shape, never by value.
+_REDACTED_API_ARGS = {"add_word"}
+
+
+def _loggable_args(name: str, args: tuple) -> str:
+    if name in _REDACTED_API_ARGS:
+        return f"(<{len(args)} argument(s) masqué(s)>)"
+    return repr(args)
+
+
 def _api_call(fn):
     """Every UI action goes through here: it lands in debug.log and always
     answers the UI with a serialisable {"ok": ...} object.
@@ -981,7 +998,7 @@ def _api_call(fn):
     the change but nothing happens"."""
 
     def wrapper(self, *args, **kwargs):
-        _debug_log(f"api {fn.__name__}{args!r}")
+        _debug_log(f"api {fn.__name__}{_loggable_args(fn.__name__, args)}")
         try:
             result = fn(self, *args, **kwargs)
         except Exception as exc:  # noqa: BLE001
@@ -1039,6 +1056,7 @@ class Api:
                 "hotkey_display": c.get("hotkey_display"),
                 "autopaste": c.get("autopaste"), "autostart": c.get("autostart"),
                 "push_to_talk": c.get("push_to_talk"), "sound_feedback": c.get("sound_feedback"),
+                "auto_update": c.get("auto_update"),
             },
             "bridge": True,
         }
@@ -1076,6 +1094,18 @@ class Api:
             return {"ok": False, "error": "Entrée d'historique introuvable"}
         copy_text(text)
         self._app._set_status("Historique copié", "Prêt")
+
+    @_api_call
+    def clear_history(self):
+        """Wipe the stored dictations.
+
+        The history is the one place where the text the user dictated sits at
+        rest, in clear, in config.json. A deployment security review asks what
+        can purge it; without this the only answer was "edit the JSON by hand".
+        """
+        ok = self._app.config.set("history", [])
+        self._app._set_history()
+        return {"ok": ok}
 
     @_api_call
     def set_hotkey(self, display):

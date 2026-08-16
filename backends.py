@@ -174,8 +174,11 @@ class OpenVINOBackend:
 
         optimum-cli export openvino \\
             --model openai/whisper-small \\
-            --weight-format int8 \\
+            --weight-format fp16 \\
             models/openvino/whisper-small
+
+    FP16 is what the shipped installer bundles and what the iGPU runs
+    natively; int8 mainly buys disk size.
 
     On NPU the pipeline must be static (``STATIC_PIPELINE=YES``). GPU refers to
     the Intel Arc iGPU on Core Ultra parts, which is often the fastest target
@@ -222,7 +225,7 @@ class OpenVINOBackend:
                 f"OpenVINO model directory not found: {self.model_dir}\n"
                 "Convert one first, e.g.:\n"
                 "  optimum-cli export openvino --model openai/whisper-small "
-                f"--weight-format int8 {self.model_dir}"
+                f"--weight-format fp16 {self.model_dir}"
             )
 
         kwargs: dict[str, object] = {}

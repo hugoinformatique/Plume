@@ -5,6 +5,75 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v1.0.0
+
+Première version destinée à la production. Le produit se resserre sur une
+seule configuration — celle qui a gagné les mesures — et tout ce qui servait à
+la comparer disparaît.
+
+- **Un seul moteur, plus de choix à faire : iGPU Intel Arc, modèle FP16.**
+  L'app démarre par défaut sur OpenVINO / `GPU` avec un `whisper-small`
+  embarqué. Le **modèle livré passe de int8 à FP16** (conversion CI et
+  `scripts/build_windows.ps1`) : l'iGPU exécute le FP16 nativement, l'int8 ne
+  faisait donc gagner que de la taille, au prix de la précision. L'installeur
+  s'alourdit en conséquence.
+- **Le « Mode avancé » est retiré de l'interface.** Sélecteur de moteur,
+  champ « Modèle » et réglage « Compute » n'existent plus à l'écran. Les
+  profils NPU / OpenVINO-CPU / CPU restent dans le code (`PROFILES`) et
+  peuvent être forcés dans `config.json` pour du diagnostic, mais aucun chemin
+  de l'interface n'y mène. Le nettoyage du texte, lui, remonte dans les
+  réglages normaux.
+- **Repli CPU automatique.** Si l'iGPU ou OpenVINO se révèle inutilisable sur
+  une machine, le chargement du moteur ne se solde plus par une erreur sans
+  issue (il n'y a plus de sélecteur pour s'en sortir) : l'app bascule seule sur
+  `faster-whisper` en CPU, l'écrit dans la ligne de statut et continue de
+  dicter.
+- **Plus aucune connexion sortante par défaut.** La recherche de mise à jour
+  au lancement devient un réglage (`auto_update`), **désactivé** ; le bouton
+  « Vérifier » reste disponible. Sorti de la boîte, Plume ne contacte plus
+  rien.
+- **« Tout effacer » dans l'historique.** Les dictées enregistrées sont le seul
+  endroit où le texte de l'utilisateur repose en clair ; il est maintenant
+  possible de les purger depuis l'app, et non plus seulement en éditant
+  `config.json`.
+- **`debug.log` ne recopie plus le vocabulaire.** Les arguments des méthodes
+  qui portent du texte saisi par l'utilisateur sont masqués : le fichier de
+  support peut circuler sans emporter de contenu.
+- **Plus aucun processus masqué.** L'installation d'une mise à jour lançait
+  l'installeur en `/SILENT` puis un PowerShell en fenêtre cachée, détaché,
+  chargé de relancer l'app. C'est le scénario type qui fait réagir un EDR
+  (binaire non signé → PowerShell masqué → lancement d'un autre binaire), pour
+  quelques secondes de confort. L'installeur s'affiche désormais normalement
+  et c'est lui qui relance Plume.
+- **Signature Authenticode câblée en CI.** `scripts/sign_windows.ps1` signe
+  l'exe (avant qu'Inno ne l'empaquette) puis l'installeur, avec horodatage
+  RFC 3161. Les deux étapes sont ignorées tant que les secrets
+  `WINDOWS_CERT_PFX_BASE64` / `WINDOWS_CERT_PASSWORD` n'existent pas : le jour
+  où un certificat est ajouté, la release suivante sort signée sans autre
+  modification.
+- **Installeur aux couleurs de l'app.** Bandeau et vignette générés à partir de
+  la même plume monochrome que l'icône (`scripts/make_icons.py`, trois échelles
+  pour les écrans HiDPI), page d'accueil réactivée, textes du wizard réécrits
+  (ce que fait Plume, et le rappel du raccourci sur la page finale), plus de
+  page inutile à cliquer, et accents français correctement rendus.
+- **Métadonnées Windows sur l'exe et l'installeur** (éditeur, version,
+  description). Un binaire sans ces informations est l'une des heuristiques
+  les moins chères d'un antivirus ou de SmartScreen.
+- **Garde-fou de version en CI.** Un tag qui ne correspond pas à
+  `APP_VERSION` / `MyAppVersion` échoue le build au lieu de publier un
+  installeur que la mise à jour intégrée ne sait pas reconnaître.
+- **Dossier sécurité** : [docs/SECURITY.md](docs/SECURITY.md) (français) —
+  flux réseau, fichiers écrits, capacités système utilisées, et la liste
+  honnête de ce qui peut faire réagir un antivirus ou un EDR (binaire non
+  signé, empaquetage PyInstaller, écoute clavier globale, PowerShell masqué
+  lors d'une mise à jour).
+- **Suppression du code et des documents de développement** : `benchmark.py`,
+  `perflog.py`, le journal `metrics.csv` et son réglage, `docs/BENCHMARKING.md`,
+  `scripts/record_sample.py`, ainsi que l'ancienne application de test Tk
+  (`tray_app.py`, `listening_bubble.py`) et ses guides (`APP_WINDOWS.md`,
+  `TESTING_WINDOWS.md`). README, architecture, configuration et guide de test
+  sont réécrits pour décrire le produit livré et non plus un MVP à mesurer.
+
 ## v0.4.28
 
 - **Bulle compacte HiDPI (200×48 px, rendu natif croustillant).**

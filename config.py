@@ -17,16 +17,23 @@ from pathlib import Path
 
 
 APP_DIR_NAME = "Plume"
+# Bumped when an existing config.json must be actively corrected, not just
+# completed from DEFAULTS (which only fills in *missing* keys).
+SETTINGS_VERSION = 1
 _LOG_MAX_BYTES = 1_000_000
 # Saves come from several threads (UI bridge, transcription worker, tray).
 _SAVE_LOCK = threading.Lock()
 
 DEFAULTS = {
     "language": "fr",
-    "model": "small",
-    "backend": "faster-whisper",
-    "device": "cpu",
-    "compute": "int8",
+    # Shipping engine: OpenVINO on the Intel Arc iGPU, with the FP16 model
+    # bundled by the installer. Chosen on measured latency/accuracy; the other
+    # profiles still exist in code (and as a CPU fallback) but the UI no longer
+    # exposes a way to select them.
+    "model": r"models\openvino\whisper-small",
+    "backend": "openvino",
+    "device": "GPU",
+    "compute": "int8",             # faster-whisper only; OpenVINO precision is set at conversion
     "cleanup": "light",
     "bubble_position": "bottom",
     "bubble_xy": None,             # [x, y] once the user has dragged the bubble
@@ -34,11 +41,24 @@ DEFAULTS = {
     "hotkey_display": "Ctrl + Espace",
     "autopaste": True,
     "autostart": False,
-    "metrics": True,               # benchmark log (removable later)
+    # Off by default: the app makes no outbound connection unless the user asks
+    # for one, which is what the deployment security review is told.
+    "auto_update": False,
     "push_to_talk": False,         # hold hotkey to record instead of press-to-toggle
     "sound_feedback": True,        # short beep on start/stop, independent of the bubble
     "vocabulary": [],              # list of {"from": str, "to": str}
     "history": [],                 # last local dictations, never leaves the PC
+    # Deliberately absent from DEFAULTS: load() merges DEFAULTS *under* the
+    # stored file, so a default here would make every pre-1.0 config.json look
+    # already-migrated. Its absence is what marks one as old.
+}
+
+# The engine the product ships and supports. Kept here rather than in plume.py
+# so the migration below and the defaults above cannot drift apart.
+SHIPPING_ENGINE = {
+    "backend": "openvino",
+    "device": "GPU",
+    "model": r"models\openvino\whisper-small",
 }
 
 
@@ -98,7 +118,28 @@ class Config:
                     path.replace(path.with_suffix(".json.bad"))
                 except Exception as exc2:
                     debug_log(f"could not quarantine bad config: {type(exc2).__name__}: {exc2}")
-        return cls(data)
+        config = cls(data)
+        config._migrate()
+        return config
+
+    def _migrate(self) -> None:
+        """Bring a config.json written by an older version in line.
+
+        DEFAULTS only fills in keys that are *absent*, so a machine that ran a
+        pre-1.0 build keeps whatever engine it had picked back when the UI let
+        you choose one -- typically the CPU one. Since 1.0 there is a single
+        supported engine and no way to select it from the UI, so an upgrade has
+        to move those installs over rather than strand them on an engine the
+        product no longer ships.
+        """
+        if int(self.data.get("settings_version") or 0) >= SETTINGS_VERSION:
+            return
+        before = (self.data.get("backend"), self.data.get("device"), self.data.get("model"))
+        self.data.update(SHIPPING_ENGINE)
+        self.data["settings_version"] = SETTINGS_VERSION
+        debug_log(f"config migrated to v{SETTINGS_VERSION}: engine {before} -> "
+                  f"{(SHIPPING_ENGINE['backend'], SHIPPING_ENGINE['device'], SHIPPING_ENGINE['model'])}")
+        self.save()
 
     def save(self) -> bool:
         with _SAVE_LOCK:

@@ -18,7 +18,7 @@ python -m pip install -r requirements-openvino.txt
 
 There is no automated test suite yet. Validate changes by running the app
 (`python plume.py`) through the manual flow in
-[TESTING_WINDOWS.md](TESTING_WINDOWS.md) / [GUIDE_TEST.md](GUIDE_TEST.md), and
+[GUIDE_TEST.md](GUIDE_TEST.md), and
 `python -m py_compile <file>.py` at minimum before committing. If you touch
 `ui/*.html`, there's no build step — just reload the app (the HTML is loaded
 from disk on window creation, not compiled).
@@ -27,7 +27,7 @@ from disk on window creation, not compiled).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module map before
 making non-trivial changes — in particular, note that `plume.py` (pywebview)
-is the shipped product and `tray_app.py` (Tk) is a legacy test harness; don't
+is the shipped product; don't
 add product features to the latter.
 
 ## Conventions observed in this codebase
@@ -39,8 +39,8 @@ add product features to the latter.
 - **New engine backend?** Implement the `Transcriber` protocol in
   `backends.py` (`load()` + `transcribe(path, hotwords=None,
   initial_prompt=None) -> TranscriptionResult`), register it in `BACKENDS`,
-  and it's automatically available to `dictate.py`, `benchmark.py`, and
-  `plume.py` via `create_backend()`.
+  and it's automatically available to `dictate.py` and `plume.py` via
+  `create_backend()`.
 - **Config changes.** Add new settings to `config.DEFAULTS` with a sane
   default so existing `config.json` files upgrade without migration code.
   Document the key in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
@@ -51,9 +51,10 @@ add product features to the latter.
   and returns `{ok, error}` so a failure is visible in the UI instead of
   vanishing into a dropped promise.
 - **Everything stays local.** No feature should require a network call except
-  the optional update check and the (documented, one-time-per-model)
-  Hugging Face download in `faster-whisper`. This is a hard product
-  requirement for the enterprise/offline positioning — see README
+  the update check, which is opt-in (`auto_update`, off by default) and
+  user-triggered otherwise. This is a hard product requirement for the
+  enterprise/offline positioning, and it is what the customer's security
+  review was given — see [docs/SECURITY.md](docs/SECURITY.md) and README
   ["Privacy Positioning"](README.md#privacy-positioning).
 - **Temporary/throwaway code** should be wrapped in clearly labeled markers
   (`BEGIN/END <NAME> (temporary, remove after X)`) and land in its own
@@ -117,3 +118,16 @@ signing certificate does.** Two paths, in order of preference:
 Either way, expect the *first* unsigned or newly-signed builds to still get
 flagged by some engines until reputation builds up — that's normal and not
 something a single fix resolves overnight.
+
+**The CI side is already wired.** `.github/workflows/windows-installer.yml`
+signs the app exe (before Inno packages it) and the installer, through
+`scripts/sign_windows.ps1`. Both steps are skipped while the secrets are
+absent, so nothing changes until you add, in the repository settings:
+
+| Secret | Value |
+|---|---|
+| `WINDOWS_CERT_PFX_BASE64` | the `.pfx`, base64-encoded: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("cert.pfx"))` |
+| `WINDOWS_CERT_PASSWORD` | its password |
+
+Nothing else to change: the next tagged build comes out signed and
+timestamped (RFC 3161, so the signature outlives the certificate).

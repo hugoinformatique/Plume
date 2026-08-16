@@ -16,11 +16,11 @@ La CI construit l'installeur Windows automatiquement. Pour déclencher une relea
 
 ```bash
 # depuis le repo, sur le commit à tester
-git tag v0.4.27
-git push origin v0.4.27
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-Puis, sur GitHub : onglet **Releases** → `v0.4.27` → télécharge **`Plume-Setup-0.4.27.exe`**.
+Puis, sur GitHub : onglet **Releases** → `v1.0.0` → télécharge **`Plume-Setup-1.0.0.exe`**.
 (Le build prend ~5–10 min. Tu peux suivre l'avancement dans l'onglet **Actions**.)
 
 ### Option B — Sans tag : artifact d'un build manuel
@@ -39,7 +39,7 @@ git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
 
-Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-0.4.27.exe`.
+Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-1.0.0.exe`.
 
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
@@ -56,7 +56,7 @@ python plume.py
 
 ## 2. Installer et lancer
 
-1. Lance `Plume-Setup-0.4.27.exe` (installation sans droits admin, dans ton profil utilisateur).
+1. Lance `Plume-Setup-1.0.0.exe` (installation sans droits admin, dans ton profil utilisateur).
 2. Ouvre **Plume** depuis le menu Démarrer. La fenêtre est une **app native** (verre dépoli, noir & blanc), pas un navigateur.
 3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt à dicter »** quand le moteur est chaud.
 
@@ -78,7 +78,7 @@ python plume.py
 - **onglet Mots** : ajoute un terme technique mal transcrit (ex. *kubernét → Kubernetes*) et revérifie qu'il sort correct ensuite ;
 - **historique local** : vérifie que la dernière dictée apparaît et que les boutons copier / recoller fonctionnent ;
 - **commandes vocales** : dicte par exemple `première ligne nouvelle ligne deuxième ligne point` ;
-- **Réglages** : change le raccourci (clic → tape la combi), la position de la bulle, teste « Mode avancé ».
+- **Réglages** : change le raccourci (clic → tape la combi), la position de la bulle, le nettoyage du texte.
 
 ---
 
@@ -121,10 +121,10 @@ d'erreur s'affiche dans la ligne de statut. À tester dans cet ordre :
    réglages — ou le bouton **Replacer** — annule le déplacement. Si elle
    n'apparaît pas, `debug.log` contient une ligne commençant par `bubble:`
    (`tkinter unavailable`, `Tk root not ready…`).
-5. **Profils NPU / iGPU** — depuis la v0.4.25 l'installeur embarque OpenVINO
-   et un modèle converti : les profils doivent fonctionner directement (voir
-   §6). S'il manque quelque chose, la sélection est **refusée avec un message
-   explicite** et revient au profil CPU au lieu de casser le moteur.
+5. **Moteur** — rien à choisir : l'installeur embarque OpenVINO et le modèle
+   FP16, l'iGPU est utilisé d'office (voir §5). Le seul message attendu ici
+   serait « Accélération iGPU indisponible sur ce PC : moteur CPU activé. »,
+   qui signale un repli automatique — signale-le-moi si tu le vois.
 6. **Réglages** — change une valeur, **quitte l'app** (menu de la zone de
    notification → Quitter), relance : la valeur doit être conservée.
 7. **Mises à jour** — le bouton doit toujours finir par afficher quelque chose
@@ -146,56 +146,35 @@ renvoie l'état du pont et la liste des erreurs rencontrées.
 
 ---
 
-## 5. Performances
+## 5. Moteur et performances
 
-- Le moteur est **maintenu chaud** : après le 1er chargement, chaque F9 enchaîne directement la transcription (plus de rechargement du modèle à chaque fois).
-- Reco pour le 125U : modèle **`small`** (bon compromis). `base` si tu veux plus rapide, `medium`/`turbo` seront probablement trop lourds pour dicter à chaud.
+Depuis la **v1.0.0**, il n'y a plus de choix de moteur : Plume tourne sur
+l'**iGPU Intel Arc via OpenVINO**, avec un modèle `whisper-small` converti en
+**FP16** embarqué dans l'installeur. Rien à installer, rien à convertir, aucun
+réglage à faire — le « Mode avancé » a été retiré de l'interface.
+
+- Le moteur est **maintenu chaud** : après le 1er chargement, chaque appui sur
+  le raccourci enchaîne directement la transcription.
+- Sur une machine sans iGPU exploitable, Plume bascule **toute seule** sur le
+  moteur CPU et l'annonce dans la ligne de statut (« Accélération iGPU
+  indisponible sur ce PC : moteur CPU activé. »). La dictée continue de
+  fonctionner, un peu plus lentement.
+- Ce qui compte maintenant à tester : le **temps du premier chargement**, la
+  **latence ressentie** ensuite, et la **qualité du texte** en usage réel.
 
 ---
 
-## 6. Tester le NPU / l'iGPU via OpenVINO
+## 6. Réseau : ce que l'app fait (et ne fait pas)
 
-Le backend par défaut (`faster-whisper`) tourne sur **CPU** et n'utilise **pas** la puce IA.
-**Depuis la v0.4.25, l'installeur embarque tout** : le runtime OpenVINO et un modèle
-`whisper-small` déjà converti en int8. Il n'y a donc plus rien à installer ni à convertir :
+Point à vérifier pour la validation sécurité : **par défaut Plume n'émet aucune
+connexion sortante**. La recherche de mise à jour au lancement est un
+interrupteur **désactivé** dans les Réglages ; le bouton « Vérifier » reste
+disponible à la demande.
 
-1. **Réglages > Mode avancé** → profil **iGPU** ou **NPU** (le champ « Modèle » se remplit tout seul).
-2. Le moteur se recharge en tâche de fond ; le statut passe à « Prêt à dicter ».
-3. Dicte la même phrase sur chaque profil et compare — puis passe au benchmark ci-dessous, c'est lui qui tranche.
-
-> **Attendu sur NPU** : le pipeline statique peut encore échouer avec
-> `Port for tensor name cache_position was not found` (conflit de versions en amont,
-> documenté dans `requirements-openvino.txt`). L'erreur s'affiche dans la ligne de statut ;
-> l'iGPU et l'OpenVINO-CPU ne sont pas concernés. Dis-moi ce que tu obtiens exactement.
-
-### Depuis les sources (ou pour convertir un autre modèle)
-
-À faire **sur le HP** :
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-openvino.txt
-
-# Convertir un modèle une fois (dossier, pas un nom HF)
-optimum-cli export openvino --model openai/whisper-small --weight-format int8 models\openvino\whisper-small
-
-# Lancer l'app puis choisir NPU/iGPU dans Réglages > Mode avancé
-python plume.py
-```
-
-Puis dans **Réglages > Mode avancé**, choisis le profil **NPU** ou **iGPU**.
-Le champ « Modèle » doit pointer sur `models\openvino\whisper-small`.
-
-### Benchmark comparatif (c'est lui qui tranche NPU vs iGPU vs CPU)
-
-Mets quelques audios (`.wav`/`.mp3`, dont des courts) dans `samples\`, puis :
-
-```powershell
-python benchmark.py --backends faster-whisper --devices cpu --models base small --language fr
-python benchmark.py --backends openvino --devices NPU GPU CPU --models models\openvino\whisper-small --language fr
-```
-
-Résultats (latence + RTF) dans `benchmark-results\results.csv`.
+Test rapide : laisse l'interrupteur sur off, lance l'app, dicte — aucune
+requête vers github.com ne doit apparaître (Moniteur de ressources → Réseau, ou
+le proxy de l'entreprise). Détail complet dans
+[docs/SECURITY.md](docs/SECURITY.md).
 
 ---
 
@@ -210,8 +189,7 @@ CPU : Intel Core Ultra 5 125U
 RAM :
 Windows :
 
---- Dictée (par modèle testé) ---
-Modèle / backend / device :
+--- Dictée ---
 Temps de démarrage (1er chargement) :
 Latence ressentie après le 2e F9 :
 Qualité du texte (1-10) :
@@ -221,11 +199,10 @@ Collé au bon endroit (oui/non) :
 --- UX ---
 Bulle « à l'écoute » : visible / animation OK / position OK ?
 Icône barre des tâches : OK ?
-Menu clic droit (modèle/moteur) : OK ?
 Design de la fenêtre : (avis libre)
 
---- NPU/iGPU (si testé) ---
-Résultats benchmark (colle le CSV ou les lignes clés) :
+--- Repli CPU ---
+Message « moteur CPU activé » apparu ? (normalement non sur le 125U)
 
 --- Problèmes / idées ---
 ```

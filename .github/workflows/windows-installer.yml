@@ -15,10 +15,31 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    # At job level so the signing steps' `if:` can read it -- a step's own
+    # `env:` block is not visible to its own condition.
+    env:
+      WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+      WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # A tag that disagrees with APP_VERSION or the Inno version ships an
+      # installer the in-app updater cannot recognise (it matches
+      # Plume-Setup-<version>.exe against APP_VERSION), so the release would
+      # look permanently "available" to every client. Fail here instead.
+      - name: Check version consistency
+        shell: pwsh
+        run: |
+          $app = (Select-String -Path plume.py -Pattern '^APP_VERSION = "(.+)"').Matches[0].Groups[1].Value
+          $inno = (Select-String -Path packaging\inno\Plume.iss -Pattern '^#define MyAppVersion "(.+)"').Matches[0].Groups[1].Value
+          Write-Host "plume.py=$app  Plume.iss=$inno  ref=${env:GITHUB_REF}"
+          if ($app -ne $inno) { throw "APP_VERSION ($app) != MyAppVersion ($inno)" }
+          if ("${env:GITHUB_REF}".StartsWith("refs/tags/v")) {
+            $tag = "${env:GITHUB_REF}".Substring("refs/tags/v".Length)
+            if ($tag -ne $app) { throw "tag v$tag != APP_VERSION $app" }
+          }
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -46,8 +67,11 @@ jobs:
           python -m venv .convert
           .\.convert\Scripts\python.exe -m pip install --upgrade pip
           .\.convert\Scripts\python.exe -m pip install "optimum-intel[openvino]>=1.21" "nncf>=2.14" "openvino==$ov"
+          # FP16, not int8: this is the precision the shipping engine (Intel
+          # Arc iGPU) was measured on and validated with. The iGPU runs FP16
+          # natively, so int8 buys size, not speed, and costs accuracy.
           .\.convert\Scripts\optimum-cli.exe export openvino `
-            --model openai/whisper-small --weight-format int8 `
+            --model openai/whisper-small --weight-format fp16 `
             models\openvino\whisper-small
           # WhisperPipeline needs the tokenizer/detokenizer IR too, and
           # optimum-cli only *warns* when their conversion fails -- without
@@ -78,6 +102,18 @@ jobs:
           PLUME_REQUIRE_OPENVINO: "1"
         run: python -m PyInstaller --noconfirm packaging/pyinstaller/Plume.spec
 
+      # Authenticode signing. Both steps are no-ops until the two repository
+      # secrets exist, so the build keeps producing an unsigned installer today
+      # and starts producing a signed one the day a certificate is added, with
+      # no further change. See CONTRIBUTING.md#code-signing.
+      #
+      # The app exe is signed *before* Inno packages it: SmartScreen judges the
+      # exe the user ends up running, not just the setup that delivered it.
+      - name: Sign the app executable
+        if: env.WINDOWS_CERT_PFX_BASE64 != ''
+        shell: pwsh
+        run: ./scripts/sign_windows.ps1 -Path "dist\Plume\Plume.exe"
+
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 
@@ -95,6 +131,11 @@ jobs:
         with:
           name: Plume-portable
           path: dist/Plume/
+
+      - name: Sign the installer
+        if: env.WINDOWS_CERT_PFX_BASE64 != ''
+        shell: pwsh
+        run: ./scripts/sign_windows.ps1 -Path "dist\installer\Plume-Setup-*.exe"
 
       - name: Upload installer
         uses: actions/upload-artifact@v4

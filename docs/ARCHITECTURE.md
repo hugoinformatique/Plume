@@ -32,8 +32,6 @@ that share the same core:
   water-droplet design (multi-layer optical depth, 3D droplet indicator bead,
   voice-reactive fluid wave ripples). It runs in its own thread, never takes focus,
   and degrades to a no-op if Tk is missing.
-- **`tray_app.py`** — legacy Tk-based test app, kept for reference/testing but
-  not the shipped product. Uses `listening_bubble.py`, its own older Tk bubble.
 - **`dictate.py`** — bare console MVP (F9 start/stop, Esc quit), useful for
   quick engine testing without any UI.
 
@@ -43,14 +41,11 @@ that share the same core:
 |---|---|
 | `plume.py` | Product app: window/tray/hotkey lifecycle, `PlumeApp` (native state + business logic), `Api` (methods exposed to the web UI as `window.pywebview.api.*`), self-update check/download. |
 | `backends.py` | Pluggable STT engines. `Transcriber` protocol, `TranscriptionResult` (text/elapsed/language/rtf), `FasterWhisperBackend` (CPU, CTranslate2), `OpenVINOBackend` (CPU/GPU/NPU via OpenVINO GenAI), `create_backend()` factory. See [OpenVINO / NPU](../README.md#openvino--npu). |
-| `sttlocal.py` | `Recorder` (mic capture -> wav via `sounddevice`), `DictationEngine` (thin backward-compatible wrapper around `backends.py` used by `tray_app.py`/`dictate.py`), text cleanup (`clean_transcript`, filler/repeat removal), spoken punctuation commands (`apply_spoken_commands`), clipboard paste (`paste_text`, `copy_text`). |
+| `sttlocal.py` | `Recorder` (mic capture -> wav via `sounddevice`), `DictationEngine` (thin wrapper around `backends.py`, used by `plume.py` and `dictate.py`), text cleanup (`clean_transcript`, filler/repeat removal), spoken punctuation commands (`apply_spoken_commands`), clipboard paste (`paste_text`, `copy_text`). |
 | `config.py` | Persistent per-user settings (`Config`, backed by `%APPDATA%\Plume\config.json` on Windows, `~/.config/plume` elsewhere), hotkey display-string <-> pynput format conversion. |
 | `vocabulary.py` | User correction dictionary: biases recognition (`hotwords`/`initial_prompt`) and post-corrects known mis-hearings. |
 | `ui_theme.py` | Shared design tokens (colors, font) and the procedurally-drawn feather app icon (used for the tray icon and window icon; also generates `assets/plume.ico`/`.png` at build time via `scripts/make_icons.py`). |
 | `floating_bubble.py` | The shipped floating "listening" pill: a native Tk window with liquid glass / water droplet optics, 3D droplet indicator, and voice-reactive fluid wave ripples. Runs its own Tk loop in a daemon thread, driven from any thread through a command queue. Draggable, never takes focus, degrades to a no-op if Tk is missing. |
-| `listening_bubble.py` | Tk-canvas liquid glass pill — legacy, used by `tray_app.py` only (it owns the Tk main loop itself). |
-| `benchmark.py` | CLI: sweep backend x device x model x file combinations on `samples/` and write `benchmark-results/results.csv`. |
-| `perflog.py` | CLI: summarize/tail the `metrics.csv` history the app writes per real dictation (see [BENCHMARKING.md](BENCHMARKING.md)). |
 
 ## UI (pywebview)
 
@@ -72,7 +67,7 @@ Python two ways:
 
 Design tokens (colors, radii, easing) live as CSS custom properties at the
 top of `index.html`; `ui_theme.py` holds the equivalent Python-side palette
-for the tray icon / legacy Tk bubble. They are kept in sync by convention,
+for the tray icon and the floating bubble. They are kept in sync by convention,
 not by a shared source of truth — if you change one, check the other.
 
 ## Packaging & release
@@ -95,10 +90,11 @@ not by a shared source of truth — if you change one, check the other.
 - Recordings: `%APPDATA%\Plume\recordings\` (main app) — deleted/overwritten
   per session, not curated.
 - Settings + history + vocabulary: `%APPDATA%\Plume\config.json`.
-- Performance history: `%APPDATA%\Plume\metrics.csv`.
+- Diagnostics: `%APPDATA%\Plume\debug.log` (local support trail, rotated at 1 MB).
 
-No network call is made except: (a) the optional startup/manual check against
-the GitHub Releases API for app updates, and (b) the first-ever load of a
-given Whisper model name, which `faster-whisper` downloads from Hugging Face
-if it isn't already cached locally. Both are documented in the README
+No network call is made except the update check against the GitHub Releases
+API, which is **off by default** (`auto_update`) and otherwise only runs when
+the user presses "Vérifier". The shipped engine is the bundled OpenVINO
+FP16 model, so no model download happens either. See
+[SECURITY.md](SECURITY.md) and the README
 ["Privacy Positioning"](../README.md#privacy-positioning) section.

@@ -2,244 +2,113 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Windows-first MVP for local voice dictation.
+Local voice dictation for Windows. Press a hotkey, speak, and the text lands in
+whatever app you were typing in. Nothing is sent anywhere: the speech
+recognition runs on the machine, on the Intel Arc iGPU.
 
-> **Just want to test it?** See [GUIDE_TEST.md](GUIDE_TEST.md) (français) — how to get the installer, run it, and report back.
+> **Just want to test it?** See [GUIDE_TEST.md](GUIDE_TEST.md) (français) — how
+> to get the installer, run it, and report back.
 
-Goal:
+- global hotkey (default `Ctrl + Espace`), press-to-toggle or push-to-talk;
+- a floating "listening" bubble that reacts to your voice;
+- transcription with Whisper `small`, FP16, on the Intel Arc iGPU (OpenVINO);
+- automatic paste into the active app, or clipboard only;
+- filler/repetition cleanup, spoken punctuation commands, correction dictionary;
+- local history of the last dictations.
 
-- press a global hotkey;
-- speak;
-- transcribe locally with Whisper;
-- paste the text into the active app, such as Notepad;
-- keep audio local.
-
-This is not polished software. It is a benchmarkable MVP for testing latency and quality on Windows PCs.
+Everything — audio, transcripts, settings — stays in `%APPDATA%\Plume`.
 
 ## Documentation
 
 | Doc | What's in it |
 |---|---|
 | [GUIDE_TEST.md](GUIDE_TEST.md) | (français) Get the installer, run it, report back — the doc for a non-dev tester. |
-| [TESTING_WINDOWS.md](TESTING_WINDOWS.md) | Full manual test procedure for the console/tray apps and model comparison. |
-| [APP_WINDOWS.md](APP_WINDOWS.md) | What the legacy Tk tray app (`tray_app.py`) does and how to run it. |
+| [docs/SECURITY.md](docs/SECURITY.md) | (français) What the app accesses, what leaves the machine (nothing, by default), and the file for a corporate security review. |
 | [INSTALLER_WINDOWS.md](INSTALLER_WINDOWS.md) | How the Windows installer is built (PyInstaller + Inno Setup) and what it produces. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code map: modules, the UI<->Python bridge, packaging, where data lives. |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `config.json` schema, vocabulary/correction-dictionary format, hotkey format. |
-| [docs/BENCHMARKING.md](docs/BENCHMARKING.md) | How to measure speed/quality: CLI `benchmark.py` for controlled sweeps, real-usage `perflog.py` for day-to-day trends. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, coding conventions, how to cut a release. |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Prioritized features for the next iterations. |
 | [CHANGELOG.md](CHANGELOG.md) | Version history. |
 
-## V2 Windows App
+## Install
 
-The desktop test app is:
+Download `Plume-Setup-1.0.0.exe` from the releases and run it. It installs per
+user (no admin rights) into `%LOCALAPPDATA%\Programs\Plume` and bundles
+everything it needs, including the speech model — there is no first-run
+download and no separate runtime to install.
 
-```powershell
-python tray_app.py --model small --language fr
-```
+Build notes: [INSTALLER_WINDOWS.md](INSTALLER_WINDOWS.md).
 
-The legacy tray test app provides:
+## Usage
 
-- a small Windows window;
-- a tray icon when supported;
-- global `F9` start/stop;
-- model selection;
-- local transcription;
-- light cleanup for hesitations/repeated words;
-- final paste into the active app.
+1. Put the cursor where you want the text (Notepad, Outlook, Teams…).
+2. Press `Ctrl + Espace`. The bubble appears and listens.
+3. Speak.
+4. Press `Ctrl + Espace` again. The transcript is pasted into the active app.
 
-Read:
+The engine stays warm after the first load, so everything after the first
+dictation of a session starts instantly. The window lives in the system tray;
+closing it does not quit the app.
 
-```text
-APP_WINDOWS.md
-```
+## Engine
 
-Optional live preview:
+Plume ships one engine, and the UI has no picker for it: **OpenVINO GenAI on
+the Intel Arc iGPU (`GPU`), running a Whisper `small` model converted to FP16
+IR**, bundled next to the exe. That combination was chosen on measured latency
+and transcription quality on the target hardware (Core Ultra); on those parts
+the Arc iGPU is roughly 2-3x the throughput of the CPU baseline at comparable
+quality, and the NPU trades speed for low power rather than winning on latency.
 
-```powershell
-python tray_app.py --model small --language fr --live-preview
-```
+Two things remain in the code for robustness:
 
-The current product UI is:
+- **CPU fallback.** If OpenVINO or the iGPU turns out to be unusable on a given
+  machine, the app falls back on its own to `faster-whisper` on CPU, says so in
+  the status line, and keeps working.
+- **The other profiles** (`ov-npu`, `ov-cpu`, `fw-cpu`) still exist in
+  `PROFILES` (`plume.py`) and can be set by hand in `config.json` for
+  diagnostics. Nothing in the UI leads there.
 
-```powershell
-python plume.py
-```
+> Known issue, unchanged: the NPU profile fails with `Port for tensor name
+> cache_position was not found` — a version conflict between `optimum-intel`'s
+> export and the `openvino-genai` NPU static pipeline (confirmed on real Core
+> Ultra hardware, 2026-08). It is not on the shipping path.
 
-It adds the glass UI, the liquid glass water-droplet listening bubble (voice-reactive fluid waves), configurable hotkey, push-to-talk, local history, spoken punctuation commands, correction dictionary, and advanced CPU/iGPU/NPU profiles.
+## Privacy
 
-## Windows Installer
+Transcription is local. No audio, no text, and no telemetry leaves the machine.
 
-Build notes:
+Out of the box the app opens **no outbound connection at all**: the update
+check is an opt-in setting, off by default, and otherwise only runs when the
+user presses "Vérifier". The speech model is bundled, so there is no Hugging
+Face download either.
 
-```text
-INSTALLER_WINDOWS.md
-```
+Details, including every file the app writes and every OS capability it uses:
+[docs/SECURITY.md](docs/SECURITY.md).
 
-The intended user-facing installer is:
-
-```text
-Plume-Setup-0.4.27.exe
-```
-
-## Quick Start On Windows
-
-Full test procedure:
-
-```text
-TESTING_WINDOWS.md
-```
-
-Install Python 3.11 or 3.12 if needed.
+## Running from source (development)
 
 ```powershell
-git clone <your-private-repo-url>
-cd local-whisper-dictation
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
-python dictate.py --model small --language fr
+python plume.py
 ```
 
-If Python 3.12 is not installed, try:
+The bundled OpenVINO engine is not installed by `requirements.txt`. From
+source, either install `requirements-openvino.txt` and convert a model once:
 
 ```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python dictate.py --model small --language fr
+optimum-cli export openvino --model openai/whisper-small --weight-format fp16 models\openvino\whisper-small
 ```
 
-## Usage
-
-1. Start the script.
-2. Open Notepad.
-3. Press `F9` to start recording.
-4. Speak.
-5. Press `F9` again to stop.
-6. The transcript is copied to the clipboard and pasted into the active app.
-
-Quit with `Esc`.
-
-## Models To Test
-
-Recommended order:
+…or let the app fall back to the CPU engine, which needs nothing extra.
+`dictate.py` is a minimal CLI over the same engines, useful for diagnostics:
 
 ```powershell
-python dictate.py --model base --language fr
-python dictate.py --model small --language fr
-python dictate.py --model medium --language fr
-python dictate.py --model turbo --language fr
-```
-
-Use `base` first to validate the chain. `small` is likely the first serious candidate. `medium` and `turbo` are quality candidates if latency is acceptable.
-
-## Benchmark Existing Audio Files
-
-Put `.wav`, `.mp3`, or `.m4a` files in `samples/`, then sweep backends, devices,
-and models. This is how you decide NPU vs iGPU vs CPU on your real machine.
-
-```powershell
-# CPU baseline across models
-python benchmark.py --backends faster-whisper --devices cpu --models base small medium turbo --language fr
-
-# OpenVINO targets (after converting a model, see "OpenVINO / NPU")
-python benchmark.py --backends openvino --devices CPU GPU NPU --models models\openvino\whisper-small --language fr
-```
-
-Results (latency + real-time factor RTF) are written to `benchmark-results/results.csv`.
-Keep a few short clips in `samples/` too: for dictation, low absolute latency on
-short utterances matters more than RTF on long files.
-
-## Performance Over Time
-
-Every real dictation from the app also logs a row to `metrics.csv` in the
-per-user config dir (`%APPDATA%\Plume\metrics.csv` on Windows), as long as the
-"metrics" setting is on (default). Summarize that history instead of relying
-on a single one-off benchmark:
-
-```powershell
-python perflog.py --summary
-python perflog.py --tail 20
-```
-
-This is how CPU vs NPU vs iGPU and model-size choices get validated against
-actual day-to-day usage on the target machine, not just a lab run.
-
-## Engine Backends
-
-The STT engine is pluggable. Pick it with `--backend`:
-
-- `faster-whisper` (default): CTranslate2, **CPU** int8. The reliable baseline. Cannot use the Intel NPU or iGPU.
-- `openvino`: Intel OpenVINO GenAI. Targets **CPU / GPU (Arc iGPU) / NPU (AI Boost)** via `--device CPU|GPU|NPU`.
-
-```powershell
-python dictate.py --backend faster-whisper --device cpu --model small --language fr
 python dictate.py --backend openvino --device GPU --model models\openvino\whisper-small --language fr
-python dictate.py --backend openvino --device NPU --model models\openvino\whisper-small --language fr
 ```
 
-## OpenVINO / NPU
-
-**Since v0.4.25 the installer already ships everything**: the OpenVINO runtime
-and a Whisper `small` model converted to int8 IR, bundled next to the exe. The
-NPU / iGPU / OpenVINO-CPU profiles in Réglages > Mode avancé are usable
-straight away — no conversion step, nothing to download. It costs installer
-size (see [INSTALLER_WINDOWS.md](INSTALLER_WINDOWS.md)); the CI conversion
-happens in `.github/workflows/windows-installer.yml`, in a throwaway virtualenv
-so `optimum-intel`/torch never reach the bundle.
-
-The steps below are for running **from source**, or to convert a different
-model. Do this **on the target Intel machine**.
-
-1. Install the optional deps:
-
-```powershell
-python -m pip install -r requirements-openvino.txt
-```
-
-2. Convert a Whisper model to the OpenVINO IR format once (the pipeline needs a
-   directory, not a Hugging Face name):
-
-```powershell
-optimum-cli export openvino --model openai/whisper-small --weight-format int8 models\openvino\whisper-small
-```
-
-3. Point `--model` at that directory and choose the device:
-
-```powershell
-python dictate.py --backend openvino --device NPU --model models\openvino\whisper-small --language fr
-```
-
-Reality check: on Core Ultra parts the **Arc iGPU (`GPU`) is often the fastest**
-target for Whisper. The **NPU** trades some speed for low power, low heat, and a
-free CPU. Don't assume NPU is fastest — measure with `benchmark.py` (below) on
-your actual PC, then decide.
-
-**NPU currently fails with `Port for tensor name cache_position was not
-found`** on export produced by the versions in `requirements-openvino.txt`
-(confirmed on real Core Ultra hardware, 2026-08). This is an unresolved
-version conflict between `optimum-intel` (needs `transformers>=4.57` to
-export at all) and the installed `openvino-genai` NPU static pipeline
-(doesn't accept that export's shape). Older `transformers` pins don't help —
-`optimum-intel`'s export refuses to run below 4.57. **Use `--device GPU` or
-`CPU`** until a compatible version combination is found; both are unaffected
-and GPU (Arc iGPU) has measured ~2-3x the throughput of CPU with comparable
-quality on this project's own benchmarks.
-
-## Privacy Positioning
-
-The MVP uses local inference. It does not call an API for transcription.
-
-Important caveat: the first run may download the selected model from Hugging Face through `faster-whisper`. For an enterprise/offline version, models should be pre-bundled or installed once from an approved internal package.
-
-## Roadmap
-
-See [docs/ROADMAP.md](docs/ROADMAP.md) for upcoming prioritized features (Live Preview in the liquid bubble, Instant Translation FR->EN, enhanced voice editing commands).
-
-## Notes
-
-- CPU (`faster-whisper`) is the reliable baseline and default.
-- Intel iGPU/NPU are available through the `openvino` backend — benchmark them per machine before committing (see "OpenVINO / NPU").
-- The MVP uses clipboard paste for compatibility. A later product can use deeper Windows text injection if needed.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for conventions and the release
+procedure.

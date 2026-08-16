@@ -20,9 +20,8 @@ from ui_theme import save_icon_assets  # noqa: E402
 
 
 def main() -> int:
-    png_path, ico_path = save_icon_assets(ROOT / "assets")
-    print(f"Wrote {png_path}")
-    print(f"Wrote {ico_path}")
+    for path in save_icon_assets(ROOT / "assets"):
+        print(f"Wrote {path}")
     return 0
 
 

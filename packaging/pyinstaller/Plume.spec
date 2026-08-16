@@ -2,6 +2,12 @@
 
 import importlib.util
 import os
+import re
+
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo,
+    VarStruct, VSVersionInfo,
+)
 
 from PyInstaller.utils.hooks import (
     collect_all, collect_data_files, collect_dynamic_libs, collect_submodules,
@@ -87,6 +93,36 @@ if os.path.exists(png_path):
 ico_path = os.path.join(ROOT, "assets", "plume.ico")
 icon = ico_path if os.path.exists(ico_path) else None
 
+# Windows version resource. An executable with no publisher/version metadata is
+# one of the cheapest heuristics an antivirus or SmartScreen has for "suspicious
+# unsigned binary", and it is also the first thing a security reviewer looks at
+# in the file properties. Read the version from plume.py so there is a single
+# source of truth.
+with open(os.path.join(ROOT, "plume.py"), encoding="utf-8") as fh:
+    _m = re.search(r'^APP_VERSION = "([\d.]+)"', fh.read(), re.M)
+if _m is None:
+    raise SystemExit("could not read APP_VERSION from plume.py")
+APP_VERSION = _m.group(1)
+_vparts = tuple(int(x) for x in (APP_VERSION.split(".") + ["0", "0", "0"])[:4])
+
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=_vparts, prodvers=_vparts, mask=0x3F, flags=0x0,
+                      OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+    kids=[
+        StringFileInfo([StringTable("040C04B0", [
+            StringStruct("CompanyName", "Hugo Informatique"),
+            StringStruct("FileDescription", "Plume — dictée vocale locale"),
+            StringStruct("FileVersion", APP_VERSION),
+            StringStruct("InternalName", "Plume"),
+            StringStruct("LegalCopyright", "© Hugo Informatique — MIT"),
+            StringStruct("OriginalFilename", "Plume.exe"),
+            StringStruct("ProductName", "Plume"),
+            StringStruct("ProductVersion", APP_VERSION),
+        ])]),
+        VarFileInfo([VarStruct("Translation", [0x040C, 1200])]),
+    ],
+)
+
 
 a = Analysis(
     [os.path.join(ROOT, "plume.py")],
@@ -120,6 +156,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=icon,
+    version=version_info,
 )
 coll = COLLECT(
     exe,

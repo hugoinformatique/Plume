@@ -233,19 +233,18 @@
   .row > div:first-child{min-width:0;flex:1 1 auto}
   .row .lbl{font-size:12.5px;font-weight:600;color:var(--ink);line-height:1.3}
   .row .sub{font-size:10.5px;color:var(--muted);margin-top:1px;line-height:1.35}
-  select,.hotcap,.modelinput,.smallbtn{flex:0 0 auto;width:var(--ctl);height:32px}
-  select,.hotcap,.modelinput{font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--glass);
+  select,.hotcap,.smallbtn{flex:0 0 auto;width:var(--ctl);height:32px}
+  select,.hotcap{font-family:inherit;font-size:12.5px;color:var(--ink);background:var(--glass);
     border:1px solid var(--hair-soft);border-radius:10px;padding:0 10px;outline:none;cursor:pointer;text-align:center;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     transition:border-color .35s var(--ease),background .35s var(--ease)}
-  select:hover,.hotcap:hover,.modelinput:hover,.tg:hover{border-color:var(--hair)}
+  select:hover,.hotcap:hover,.tg:hover{border-color:var(--hair)}
   /* `brightness()` ne se voit pas sur un aplat quasi noir (clair) ni sur du
      blanc pur (sombre) : le survol passe par l'opacité, lisible dans les deux
      thèmes. */
   .smallbtn:hover:not(:disabled),.updatebar button:hover:not(:disabled){opacity:.84}
   .smallbtn:active:not(:disabled),.updatebar button:active:not(:disabled){transform:scale(.97)}
   .smallbtn,.updatebar button{transition:transform .3s var(--ease),opacity .3s var(--ease)}
-  .modelinput{text-align:left;cursor:text}
   /* L'interrupteur reste plus étroit que --ctl, mais son bord droit est aligné
      sur celui des autres contrôles : c'est cette arête droite que l'œil suit
      en parcourant la colonne. */
@@ -260,14 +259,10 @@
     font-size:12px;font-weight:700;padding:0 11px;cursor:pointer}
   @media (prefers-color-scheme: dark){.smallbtn{color:#121212}}
   .smallbtn:disabled{opacity:.48;cursor:default}
+  .linkbtn{border:0;background:none;padding:0;margin-left:4px;cursor:pointer;font-family:inherit;
+    font-size:inherit;color:var(--ink);text-decoration:underline;opacity:.7}
+  .linkbtn:hover{opacity:1}
 
-  .advtoggle{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;border:0;cursor:pointer;
-    background:transparent;color:var(--muted);font-family:inherit;font-size:12px;font-weight:600;padding:6px;
-    transition:color .4s var(--ease)}
-  .advtoggle:hover{color:var(--ink)}
-  .advtoggle svg{width:14px;height:14px;transition:transform .5s var(--ease)}
-  .adv{max-height:0;overflow:hidden;transition:max-height .6s var(--ease),opacity .5s var(--ease);opacity:.4;flex:none}
-  .adv.open{max-height:280px;opacity:1}
   /* Les deux panneaux qui défilent sont des colonnes flex : sans `flex:none`,
      leurs enfants se compriment (flex-shrink implicite) au lieu de déclencher
      l'ascenseur, et les lignes de réglages s'écrasent à 620 px de haut. */
@@ -283,7 +278,6 @@
     .muted-note{display:none}
     .row{padding:5px 2px}
   }
-  body.advopen .advtoggle svg{transform:rotate(180deg)}
   .history::-webkit-scrollbar,#tab-reglages::-webkit-scrollbar,#tab-mots::-webkit-scrollbar,
   #tab-dictee .card--flat .inner::-webkit-scrollbar{width:6px}
   .history::-webkit-scrollbar-thumb,#tab-reglages::-webkit-scrollbar-thumb,#tab-mots::-webkit-scrollbar-thumb,
@@ -372,7 +366,8 @@
         <input id="historySearch" type="search" placeholder="Rechercher dans l'historique…" aria-label="Rechercher dans l'historique" />
       </div>
       <div class="history" id="history"></div>
-      <p class="muted-note histnote">Ces dictées restent sur ce PC — copie ou recolle au besoin.</p>
+      <p class="muted-note histnote">Ces dictées restent sur ce PC — copie ou recolle au besoin.
+        <button class="linkbtn" id="clearHistory" type="button">Tout effacer</button></p>
     </section>
 
     <section class="panel" id="tab-mots">
@@ -399,15 +394,8 @@
             <select id="lang"><option value="fr">Français</option><option value="en">English</option><option value="auto">Auto</option></select>
           </div>
           <div class="row">
-            <div><div class="lbl">Modèle</div><div class="sub">Qualité vs vitesse</div></div>
-            <input class="modelinput" id="model" list="modelList" value="small" />
-            <datalist id="modelList">
-              <option value="base"></option>
-              <option value="small"></option>
-              <option value="medium"></option>
-              <option value="turbo"></option>
-              <option value="models\openvino\whisper-small"></option>
-            </datalist>
+            <div><div class="lbl">Nettoyage</div><div class="sub">Hésitations et répétitions</div></div>
+            <select id="cleanup"><option value="off">Aucun</option><option value="light" selected>Léger</option><option value="strong">Fort</option></select>
           </div>
           <div class="row">
             <div><div class="lbl">Raccourci</div><div class="sub">Clique puis tape la combinaison</div></div>
@@ -438,36 +426,12 @@
             <div class="tg" id="tgStartup" role="switch" aria-checked="false" aria-label="Démarrer avec Windows" tabindex="0"></div>
           </div>
           <div class="row">
-            <div><div class="lbl">Mise à jour</div><div class="sub" id="updateLine">Recherche automatique au lancement</div></div>
-            <button class="smallbtn" id="checkUpdate">Vérifier</button>
+            <div><div class="lbl">Rechercher les mises à jour au lancement</div><div class="sub">Désactivé : Plume ne contacte rien de lui-même</div></div>
+            <div class="tg" id="tgAutoUpdate" role="switch" aria-checked="false" aria-label="Rechercher les mises à jour au lancement" tabindex="0"></div>
           </div>
-        </div>
-      </div>
-
-      <button class="advtoggle" id="advToggle">
-        Mode avancé
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-      </button>
-      <div class="adv" id="adv">
-        <div class="card--flat">
-          <div class="inner">
-            <div class="row">
-              <div><div class="lbl">Moteur</div><div class="sub">Accélération</div></div>
-              <select id="profile">
-                <option value="fw-cpu" selected>Rapide — CPU</option>
-                <option value="ov-npu">NPU — AI Boost</option>
-                <option value="ov-gpu">iGPU — Arc</option>
-                <option value="ov-cpu">OpenVINO — CPU</option>
-              </select>
-            </div>
-            <div class="row">
-              <div><div class="lbl">Nettoyage</div><div class="sub">Hésitations / répétitions</div></div>
-              <select id="cleanup"><option value="off">Aucun</option><option value="light" selected>Léger</option><option value="strong">Fort</option></select>
-            </div>
-            <div class="row">
-              <div><div class="lbl">Compute</div><div class="sub">Précision faster-whisper</div></div>
-              <select id="compute"><option value="int8" selected>int8</option><option value="int8_float16">int8_float16</option><option value="float16">float16</option><option value="float32">float32</option></select>
-            </div>
+          <div class="row">
+            <div><div class="lbl">Mise à jour</div><div class="sub" id="updateLine">Vérification manuelle</div></div>
+            <button class="smallbtn" id="checkUpdate">Vérifier</button>
           </div>
         </div>
       </div>
@@ -540,14 +504,16 @@
   }
   recBtn.addEventListener("click", ()=>{ setRecording(!state.recording); api.toggle(); });
 
-  const advToggle=document.getElementById("advToggle"), adv=document.getElementById("adv");
-  advToggle.addEventListener("click", ()=>{ adv.classList.toggle("open"); document.body.classList.toggle("advopen"); });
   // persist settings
-  const settingMap = { lang:"language", model:"model", bubble:"bubble_position", cleanup:"cleanup", compute:"compute", profile:"profile" };
-  // `set_setting` renvoie {ok, key, value, error}. Un refus (profil NPU sans
-  // moteur OpenVINO, par exemple) remet le champ sur la valeur réellement
-  // en vigueur, renvoyée par Python : l'écran ne prétend jamais avoir appliqué
-  // un réglage que le moteur a rejeté.
+  //
+  // Le moteur (OpenVINO / iGPU Arc, modèle FP16) et le modèle ne sont plus
+  // réglables depuis l'interface : un seul couple est livré et validé. Python
+  // garde le code des autres profils — repli CPU automatique si la machine n'a
+  // pas d'iGPU utilisable — mais rien ici ne permet d'en choisir un.
+  const settingMap = { lang:"language", bubble:"bubble_position", cleanup:"cleanup" };
+  // `set_setting` renvoie {ok, key, value, error}. Un refus remet le champ sur
+  // la valeur réellement en vigueur, renvoyée par Python : l'écran ne prétend
+  // jamais avoir appliqué un réglage que le moteur a rejeté.
   const setSetting = (key, value, el)=> api.set_setting(key, value).then(r=>{
     if(r && r.ok===false){
       if(el && r.value!=null) el.value = r.value;
@@ -555,26 +521,8 @@
     }
     return r;
   });
-  // `profile` a son propre gestionnaire (il entraîne le modèle avec lui).
-  Object.keys(settingMap).filter(id=>id!=="profile").forEach(id=>{ const el=document.getElementById(id);
+  Object.keys(settingMap).forEach(id=>{ const el=document.getElementById(id);
     el && el.addEventListener("change", ()=> setSetting(settingMap[id], el.value, el)); });
-  document.getElementById("model").addEventListener("blur", e=>setSetting("model", e.target.value.trim() || "small", e.target));
-  document.getElementById("profile").addEventListener("change", e=>{
-    const model=document.getElementById("model");
-    const prevModel=model.value;
-    if(e.target.value.startsWith("ov-") && ["base","small","medium","turbo"].includes(model.value)){
-      model.value="models\\openvino\\whisper-small";
-    }
-    if(e.target.value==="fw-cpu" && model.value.startsWith("models\\openvino\\")){
-      model.value="small";
-    }
-    // Le modèle ne suit le profil que si le profil est accepté : sinon on
-    // resterait avec un modèle OpenVINO sur un moteur faster-whisper.
-    setSetting("profile", e.target.value, e.target).then(r=>{
-      if(r && r.ok===false){ model.value=prevModel; return; }
-      setSetting("model", model.value, model);
-    });
-  });
   const resetBubble=document.getElementById("resetBubble");
   resetBubble && resetBubble.addEventListener("click", ()=>{
     resetBubble.disabled=true;
@@ -584,6 +532,7 @@
   });
   const tgPaste=document.getElementById("tgPaste"), tgStartup=document.getElementById("tgStartup");
   const tgPtt=document.getElementById("tgPtt"), tgSound=document.getElementById("tgSound");
+  const tgAutoUpdate=document.getElementById("tgAutoUpdate");
   function wireToggle(el, settingKey){
     // Bascule optimiste, puis retour en arrière si le moteur refuse.
     const flip=()=>{ const on=el.classList.toggle("on"); el.setAttribute("aria-checked", on);
@@ -603,14 +552,15 @@
   wireToggle(tgStartup, "autostart");
   wireToggle(tgPtt, "push_to_talk");
   wireToggle(tgSound, "sound_feedback");
+  wireToggle(tgAutoUpdate, "auto_update");
 
   function applyConfig(c){ if(!c) return;
     const set=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
     const setTg=(el,v)=>{ el.classList.toggle("on", !!v); el.setAttribute("aria-checked", !!v); };
-    set("lang",c.language); set("model",c.model); set("bubble",c.bubble_position);
-    set("cleanup",c.cleanup); set("compute",c.compute); set("profile",c.profile);
+    set("lang",c.language); set("bubble",c.bubble_position); set("cleanup",c.cleanup);
     setTg(tgPaste, c.autopaste); setTg(tgStartup, c.autostart);
     setTg(tgPtt, c.push_to_talk); setTg(tgSound, c.sound_feedback !== false);
+    setTg(tgAutoUpdate, c.auto_update);
     if(c.hotkey_display){ document.getElementById("hotcap").textContent=c.hotkey_display; document.getElementById("hotHint").textContent=c.hotkey_display; }
   }
   // Chargement de l'état réel : passe par `bridgeReady`, donc fonctionne que
@@ -736,6 +686,26 @@
     historyEl.querySelectorAll("[data-copy]").forEach(b=>b.addEventListener("click",()=>api.copy_history(+b.dataset.copy)));
     historyEl.querySelectorAll("[data-paste]").forEach(b=>b.addEventListener("click",()=>api.paste_history(+b.dataset.paste)));
   }
+  // Confirmation en deux temps, dans la page : `window.confirm` dépend du
+  // navigateur hôte (WebView2) et n'est pas garanti dans une fenêtre pywebview.
+  const clearHistory=document.getElementById("clearHistory");
+  let clearArmed=0;
+  clearHistory && clearHistory.addEventListener("click", ()=>{
+    if(!state.history.length) return;
+    if(Date.now() > clearArmed){
+      clearArmed = Date.now() + 4000;
+      clearHistory.textContent = "Confirmer ?";
+      setTimeout(()=>{ if(Date.now() > clearArmed){ clearHistory.textContent = "Tout effacer"; } }, 4100);
+      return;
+    }
+    clearArmed = 0;
+    clearHistory.textContent = "Tout effacer";
+    api.clear_history().then(r=>{
+      if(r && r.ok===false) return;
+      state.history=[]; renderHistory();
+      window.plume.setStatus("Historique effacé", "Prêt");
+    });
+  });
   if(historySearch){
     historySearch.addEventListener("input", renderHistory);
     historySearch.addEventListener("keydown", e=>{ if(e.key==="Escape" && historySearch.value){ historySearch.value=""; renderHistory(); } });

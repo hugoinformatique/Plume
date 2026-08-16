@@ -20,7 +20,7 @@ The Windows build produces two artifacts:
 The installer file name is:
 
 ```text
-Plume-Setup-0.4.27.exe
+Plume-Setup-1.0.0.exe
 ```
 
 ## Build On GitHub
@@ -35,7 +35,7 @@ It runs on Windows and builds:
 
 1. Python dependencies, including the OpenVINO **runtime**
    (`requirements-openvino-runtime.txt`).
-2. A Whisper `small` model converted to OpenVINO int8 IR, in a throwaway
+2. A Whisper `small` model converted to OpenVINO FP16 IR, in a throwaway
    virtualenv so that `optimum-intel` and torch never end up in the bundle.
 3. PyInstaller app folder.
 4. Inno Setup installer.
@@ -67,14 +67,14 @@ Outputs:
 
 ```text
 dist\Plume\
-dist\installer\Plume-Setup-0.4.27.exe
+dist\installer\Plume-Setup-1.0.0.exe
 ```
 
 ## User Install Flow
 
 For a normal user:
 
-1. Download `Plume-Setup-0.4.27.exe`.
+1. Download `Plume-Setup-1.0.0.exe`.
 2. Run the installer.
 3. Launch `Plume`.
 4. Choose a model.

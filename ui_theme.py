@@ -83,8 +83,70 @@ def make_icon_image(size: int = 64, bg: str = BRAND, fg: str = "#FFFFFF"):
     return img
 
 
-def save_icon_assets(assets_dir: Path) -> tuple[Path, Path]:
-    """Write assets/plume.png (256) and assets/plume.ico (multi-size)."""
+def _vertical_gradient(size: tuple[int, int], top: str, bottom: str):
+    """A smooth top-to-bottom blend, as an RGB image."""
+    from PIL import Image
+
+    width, height = size
+    column = Image.new("RGB", (1, height))
+    for y in range(height):
+        column.putpixel((0, y), _hex_to_rgb(mix(top, bottom, y / max(1, height - 1))))
+    return column.resize((width, height), Image.BICUBIC)
+
+
+def make_wizard_image(width: int = 164, height: int = 314):
+    """Large artwork for the installer's welcome/finish pages.
+
+    Inno Setup wants a bitmap, and it does not composite alpha, so this is
+    rendered flat on the brand gradient rather than handed a transparent icon.
+    Same feather mark as the app, so the setup wizard and the app read as one
+    product instead of a generic blue Inno window.
+    """
+    from PIL import Image
+
+    img = _vertical_gradient((width, height), BRAND_DARK, mix(BRAND, SURFACE, 0.10))
+
+    # Oversized feather bleeding off the bottom-right corner. Drawn in white
+    # and then taken down to ~9% alpha: a watermark has to sit *under* the
+    # wizard text, so it is defined by the faint edge of its shape, not by its
+    # internal lines -- hence the near-identical vane and spine colours.
+    mark_size = int(width * 1.9)
+    mark = _feather_layer(mark_size, fg="#FFFFFF", spine="#E8E8E8")
+    faint = mark.copy()
+    faint.putalpha(mark.getchannel("A").point(lambda a: int(a * 0.09)))
+    img.paste(faint.convert("RGB"), (int(width * 0.30), int(height * 0.42)), faint)
+
+    # A single hairline down the right edge, where the bitmap meets the white
+    # wizard page: without it the artwork ends on a soft gradient and looks
+    # unfinished against the panel.
+    from PIL import ImageDraw
+
+    ImageDraw.Draw(img).line(
+        (width - 1, 0, width - 1, height), fill=_hex_to_rgb(mix(BRAND, "#FFFFFF", 0.18)), width=1
+    )
+
+    # The crisp app mark, upper area, where the eye lands first.
+    icon_size = int(width * 0.34)
+    icon = make_icon_image(icon_size)
+    img.paste(icon.convert("RGB"), (int(width * 0.17), int(height * 0.13)), icon)
+    return img
+
+
+def make_wizard_small_image(size: int = 55):
+    """The little header image shown on every page after the welcome one."""
+    from PIL import Image
+
+    img = _vertical_gradient((size, size), BRAND_DARK, BRAND)
+    icon = make_icon_image(size)
+    img.paste(icon.convert("RGB"), (0, 0), icon)
+    return img
+
+
+def save_icon_assets(assets_dir: Path) -> tuple[Path, ...]:
+    """Write the icon and the Inno Setup wizard bitmaps into `assets_dir`.
+
+    Returns every path written, in the order they are produced.
+    """
     assets_dir.mkdir(parents=True, exist_ok=True)
     png_path = assets_dir / "plume.png"
     ico_path = assets_dir / "plume.ico"
@@ -92,4 +154,15 @@ def save_icon_assets(assets_dir: Path) -> tuple[Path, Path]:
     make_icon_image(256).save(png_path)
     sizes = [16, 24, 32, 48, 64, 128, 256]
     make_icon_image(256).save(ico_path, sizes=[(s, s) for s in sizes])
-    return png_path, ico_path
+
+    written = [png_path, ico_path]
+    # Inno picks the best size from the comma-separated list in Plume.iss, so
+    # ship the scaled variants too -- otherwise the wizard upscales a 164px
+    # bitmap on a HiDPI laptop and the setup looks cheap next to the app.
+    for scale, suffix in ((1, ""), (2, "-2x"), (3, "-3x")):
+        big = assets_dir / f"wizard{suffix}.bmp"
+        small = assets_dir / f"wizard-small{suffix}.bmp"
+        make_wizard_image(164 * scale, 314 * scale).save(big)
+        make_wizard_small_image(55 * scale).save(small)
+        written += [big, small]
+    return tuple(written)
