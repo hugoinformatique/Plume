@@ -5,6 +5,51 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v1.2.0
+
+Retour d'usage sur la 1.1.0 : la bulle restait sombre et « pas nette », et
+l'aperçu du texte, affiché seulement une fois la transcription finie, n'avait
+pas d'intérêt. Les deux sont repris.
+
+- **Le texte de la bulle était dessiné à la moitié de sa taille.** La police
+  était construite à sa taille finale puis tracée sur le calque en double
+  résolution, avant que l'ensemble ne soit réduit de moitié : les libellés
+  sortaient à ~6 px, puis rééchantillonnés — ce qui écrase en plus le hinting
+  appliqué par FreeType. D'où l'impression de texte petit et sale, que le
+  passage à l'alpha par pixel n'avait pas corrigée parce que ce n'était pas le
+  même problème. Le texte est désormais tracé **après** la réduction, à la
+  résolution native ; les formes gardent le suréchantillonnage, dont elles ont
+  besoin (`ImageDraw` n'anticrénèle rien), le texte non (FreeType s'en charge).
+  Un test mesure l'étendue réelle des glyphes pour empêcher la régression.
+- **Verre clair givré au lieu du galet noir.** La bulle passe d'un voile noir à
+  60 % à un voile blanc à 45 %, texte encre. Elle vit au-dessus de documents,
+  de mails et de navigateurs, qui sont clairs : un galet sombre s'y pose
+  dessus au lieu d'y appartenir. Le piège d'un voile blanc étant de disparaître
+  sur une page blanche, ce n'est pas l'opacité qui le rend lisible — cela
+  ramènerait le galet — mais son encadrement : ombre portée large et douce,
+  filet de contact sur tout le pourtour, et lèvre intérieure lumineuse qui
+  donne l'épaisseur du verre. Rendu de référence :
+  [docs/bubble.png](docs/bubble.png).
+- **Détails de rendu corrigés** : la traînée spéculaire sortait en pointillés
+  (elle était composée de pastilles successives, désormais une capsule continue
+  atténuée par un dégradé) ; la bille avait un reflet trop marqué qui la faisait
+  lire comme un œil ; et le badge `FR→EN`, logé dans le coin supérieur droit,
+  chevauchait les barres d'onde — il est maintenant aligné avant le libellé.
+- **L'aperçu est réellement en direct.** Les mots s'affichent **pendant** qu'on
+  parle : toutes les ~1,4 s, les 7 dernières secondes d'audio sont transcrites
+  et affichées. C'est possible sans rien coûter parce que l'iGPU est **inoccupé**
+  pendant la dictée — la passe finale ne démarre qu'à l'arrêt. Deux garde-fous :
+  la transcription finale prend un verrou et gagne toujours (un aperçu qui ne
+  peut pas l'obtenir est abandonné, jamais mis en file d'attente), et chaque
+  extrait est borné dans le temps, donc son coût ne croît pas avec la durée de
+  la dictée. La bulle s'élargit **par paliers** et ne rétrécit pas tant qu'elle
+  est affichée : se re-dimensionner à chaque mot la faisait vibrer dans le coin
+  de l'œil.
+- **Redimensionnement sans reconstruction.** La bulle réutilise son moteur de
+  rendu au lieu d'en recréer un à chaque changement de largeur, ce qui jetait
+  le cache de la coque — deux flous gaussiens — et re-rastérisait la police
+  pour rien, une fois par seconde pendant l'aperçu.
+
 ## v1.1.0
 
 La bulle devient réellement du verre, et les trois fonctionnalités de la

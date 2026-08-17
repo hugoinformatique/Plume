@@ -16,11 +16,11 @@ La CI construit l'installeur Windows automatiquement. Pour déclencher une relea
 
 ```bash
 # depuis le repo, sur le commit à tester
-git tag v1.1.0
-git push origin v1.1.0
+git tag v1.2.0
+git push origin v1.2.0
 ```
 
-Puis, sur GitHub : onglet **Releases** → `v1.1.0` → télécharge **`Plume-Setup-1.1.0.exe`**.
+Puis, sur GitHub : onglet **Releases** → `v1.2.0` → télécharge **`Plume-Setup-1.2.0.exe`**.
 (Le build prend ~5–10 min. Tu peux suivre l'avancement dans l'onglet **Actions**.)
 
 ### Option B — Sans tag : artifact d'un build manuel
@@ -39,7 +39,7 @@ git checkout feat/plume-pluggable-backends
 .\scripts\build_windows.ps1
 ```
 
-Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-1.1.0.exe`.
+Sorties : `dist\Plume\Plume.exe` (portable) et `dist\installer\Plume-Setup-1.2.0.exe`.
 
 ### Option D — Lancer depuis les sources (test rapide, sans installeur)
 
@@ -56,7 +56,7 @@ python plume.py
 
 ## 2. Installer et lancer
 
-1. Lance `Plume-Setup-1.1.0.exe` (installation sans droits admin, dans ton profil utilisateur).
+1. Lance `Plume-Setup-1.2.0.exe` (installation sans droits admin, dans ton profil utilisateur).
 2. Ouvre **Plume** depuis le menu Démarrer. La fenêtre est une **app native** (verre dépoli, noir & blanc), pas un navigateur.
 3. **Premier lancement** : le modèle `small` (~460 Mo) se télécharge une fois depuis Internet, puis c'est 100 % local. Le statut passe à **« Prêt à dicter »** quand le moteur est chaud.
 
@@ -148,7 +148,7 @@ renvoie l'état du pont et la liste des erreurs rencontrées.
 
 ## 5. Moteur et performances
 
-Depuis la **v1.1.0**, il n'y a plus de choix de moteur : Plume tourne sur
+Depuis la **v1.2.0**, il n'y a plus de choix de moteur : Plume tourne sur
 l'**iGPU Intel Arc via OpenVINO**, avec un modèle `whisper-small` converti en
 **FP16** embarqué dans l'installeur. Rien à installer, rien à convertir, aucun
 réglage à faire — le « Mode avancé » a été retiré de l'interface.
@@ -164,23 +164,23 @@ réglage à faire — le « Mode avancé » a été retiré de l'interface.
 
 ---
 
-## 5 bis. Nouveautés v1.1.0 à tester
+## 5 bis. Nouveautés v1.2.0 à tester
 
-1. **La bulle** — elle doit être en **verre translucide** : on voit le bureau à
-   travers, les bords sont lisses (plus d'escalier de pixels), et elle projette
-   une ombre douce. Dis-moi si elle scintille, si elle laisse une traînée en la
-   déplaçant, ou si elle apparaît en carré noir.
-2. **Aperçu du texte** — à la fin d'une dictée, la bulle s'élargit et affiche le
-   texte inséré (tronqué par la gauche si c'est long). Désactivable dans
-   Réglages → « Aperçu dans la bulle ».
-3. **Traduction FR→EN** — `Ctrl + Maj + Espace` : parle en français, c'est de
-   l'anglais qui se colle. Un badge `FR→EN` apparaît sur la bulle. Le raccourci
-   est modifiable et désactivable dans les Réglages.
-4. **Commandes vocales** — à essayer en dictant, d'une traite :
+1. **La bulle** — elle est maintenant en **verre clair givré** (voile blanc,
+   texte sombre), plus le galet noir. Elle doit être nette : bords lisses,
+   texte franc, sans escalier de pixels. Aperçu du rendu attendu :
+   [docs/bubble.png](docs/bubble.png). Dis-moi si elle scintille, si elle laisse
+   une traînée quand on la déplace, ou si le texte paraît flou.
+2. **Les mots en direct** — pendant que tu parles, la bulle doit afficher au fur
+   et à mesure ce qu'elle comprend (elle s'élargit, et garde les derniers mots
+   visibles). Le point à surveiller : **est-ce que ça ralentit la transcription
+   finale ?** Si oui, dis-le — le réglage « Aperçu dans la bulle » le coupe.
+3. **Traduction FR→EN** — `Ctrl + Maj + Espace`, badge `FR→EN` dans la bulle.
+4. **Commandes vocales** — à essayer d'une traite :
    « objet deux points relance client **point** **nouveau paragraphe** bonjour
-   Marc **virgule** je te confirme **point** » puis les listes
+   Marc **virgule** je te confirme **point** », puis les listes
    (« **tiret** premier **tiret** second »), les guillemets
-   (« **ouvrez les guillemets** … **fermez les guillemets** ») et surtout les
+   (« **ouvrez les guillemets** … **fermez les guillemets** ») et les
    corrections : « **effacer le dernier mot** », « **tout effacer** ».
    Vérifie l'espacement français : `Objet : relance`, `« parfait »`, `Vraiment !`
 

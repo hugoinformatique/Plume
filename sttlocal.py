@@ -64,11 +64,31 @@ class Recorder:
         )
         self.stream.start()
 
-    def snapshot_to_wav(self, output_dir: Path, prefix: str = "preview") -> Path | None:
+    def snapshot_to_wav(self, output_dir: Path, prefix: str = "preview",
+                        tail_seconds: float | None = None) -> Path | None:
+        """Write what has been recorded so far, without stopping the recording.
+
+        `tail_seconds` keeps only the end of it. The live preview transcribes
+        these snapshots while the user is still speaking, so their cost has to
+        stay flat: transcribing everything since the start would get slower
+        with every second of a long dictation, and would eventually still be
+        running when the user stops -- delaying the real transcription, which
+        is the one that matters.
+        """
         with self._lock:
             frames = [frame.copy() for frame in self.frames]
         if not frames or self.duration < 0.25:
             return None
+        if tail_seconds:
+            wanted = int(tail_seconds * self.sample_rate)
+            kept: list[np.ndarray] = []
+            total = 0
+            for frame in reversed(frames):
+                kept.append(frame)
+                total += frame.shape[0]
+                if total >= wanted:
+                    break
+            frames = list(reversed(kept))
         return write_frames_to_wav(frames, output_dir, self.sample_rate, prefix)
 
     def stop_to_wav(self, output_dir: Path) -> Path | None:

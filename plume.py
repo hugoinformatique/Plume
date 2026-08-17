@@ -35,12 +35,18 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 GITHUB_REPO_URL = "https://github.com/hugoinformatique/Plume"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 GITHUB_RELEASES_LATEST_URL = f"{GITHUB_REPO_URL}/releases/latest"
 INSTALLER_RE = re.compile(r"^Plume-Setup-(?P<version>\d+(?:\.\d+)+)\.exe$", re.IGNORECASE)
 AUTO_UPDATE_MAX_BYTES = 200 * 1024 * 1024  # above this, ask before downloading
+# Live preview cadence. The delay before the first snapshot keeps very short
+# dictations from paying for a preview nobody will read; the tail bounds the
+# cost of each one so a long dictation does not get progressively slower.
+LIVE_PREVIEW_FIRST_S = 1.6
+LIVE_PREVIEW_EVERY_S = 1.4
+LIVE_PREVIEW_TAIL_S = 7.0
 
 
 def resource_dir() -> str:
@@ -348,6 +354,9 @@ class PlumeApp:
         # "transcribe" or "translate", armed per dictation by the shortcut used.
         self._task = "transcribe"
         self.hotkeys_translate = None
+        # One engine, one inference at a time: the live preview and the final
+        # pass share the same warm pipeline.
+        self._infer_lock = threading.Lock()
 
     # ---- engine (kept warm) -------------------------------------------------
     def _engine_params(self) -> tuple:
@@ -639,6 +648,52 @@ class PlumeApp:
         wave[count - decay:] *= fade
         return wave
 
+    def _live_preview_loop(self) -> None:
+        """Transcribe short snapshots while the user speaks, to fill the bubble.
+
+        This is only worth doing because of *when* it happens: during a
+        dictation the engine is idle -- the real pass does not start until the
+        user stops -- so the iGPU is free. Two rules keep it from ever costing
+        the user anything that matters:
+
+        - the final transcription holds `_infer_lock` and always wins; a
+          preview that cannot take the lock is skipped, not queued;
+        - snapshots only cover the last few seconds, so their cost stays flat
+          however long the dictation runs.
+        """
+        time.sleep(LIVE_PREVIEW_FIRST_S)
+        while self.recording:
+            if not self.config.get("bubble_preview"):
+                return
+            path = None
+            acquired = self._infer_lock.acquire(blocking=False)
+            if acquired:
+                try:
+                    path = self.recorder.snapshot_to_wav(
+                        self.recordings_dir, tail_seconds=LIVE_PREVIEW_TAIL_S
+                    )
+                    if path is not None and self.recording:
+                        engine = self._get_engine()
+                        result = engine.transcribe_full(path, task=self._task)
+                        text = " ".join(str(result.text).split())
+                        if text and self.recording:
+                            bubble = self.bubble
+                            if bubble is not None:
+                                bubble.set_text(text)
+                except Exception as exc:  # noqa: BLE001
+                    # A preview is a nicety: log it and stop trying, never let
+                    # it surface as an error over a working dictation.
+                    _debug_log(f"live preview stopped: {type(exc).__name__}: {exc}")
+                    return
+                finally:
+                    self._infer_lock.release()
+                    if path is not None:
+                        try:
+                            path.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+            time.sleep(LIVE_PREVIEW_EVERY_S)
+
     def _start(self) -> None:
         self.recording = True
         if self.bubble is not None or self._task == "translate":
@@ -651,6 +706,8 @@ class PlumeApp:
         self._show_bubble(listening=True)
         self._level_stop.clear()
         threading.Thread(target=self._level_loop, daemon=True).start()
+        if self.config.get("bubble_preview"):
+            threading.Thread(target=self._live_preview_loop, daemon=True).start()
 
     def _stop(self) -> None:
         self.recording = False
@@ -675,9 +732,10 @@ class PlumeApp:
             engine = self._get_engine()
             hotwords = self.vocab.hotwords() or None
             initial = self.vocab.initial_prompt() or None
-            result = engine.transcribe_full(
-                path, hotwords=hotwords, initial_prompt=initial, task=task
-            )
+            with self._infer_lock:
+                result = engine.transcribe_full(
+                    path, hotwords=hotwords, initial_prompt=initial, task=task
+                )
             mode = self.config.get("cleanup")
             # Spoken punctuation and layout commands are French; on a
             # translated pass the output is English, so cleaning it with the

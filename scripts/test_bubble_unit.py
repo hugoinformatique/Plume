@@ -82,6 +82,32 @@ class TestGlassRenderer(unittest.TestCase):
         self.assertTrue(fitted.startswith("…"), fitted)
         self.assertTrue(fitted.endswith("huit"), fitted)
 
+    def test_text_is_drawn_at_native_size(self):
+        """The label used to be drawn on the 2x layer with a font built at its
+        *final* pixel size, so it came out at half size and was then
+        resampled -- small and mushy, the "still pixelated" report.
+
+        Measured here by ink extent: the glyphs must cover roughly the height
+        the font asks for, not half of it.
+        """
+        from PIL import Image
+
+        plain = self.renderer.frame("listening", "", 1.0, 0.0, self.bars)
+        titled = self.renderer.frame("listening", "Hxy", 1.0, 0.0, self.bars)
+        diff = Image.new("RGBA", plain.size)
+        for y in range(plain.size[1]):
+            for x in range(plain.size[0]):
+                if plain.getpixel((x, y)) != titled.getpixel((x, y)):
+                    diff.putpixel((x, y), (255, 255, 255, 255))
+        box = diff.getbbox()
+        self.assertIsNotNone(box, "the label did not draw anything")
+        ink_height = box[3] - box[1]
+        expected = self.renderer.font(12.5).size
+        self.assertGreater(
+            ink_height, expected * 0.55,
+            f"glyphs {ink_height}px tall for a {expected}px font: drawn at the wrong scale",
+        )
+
     def test_translate_badge_changes_the_frame(self):
         plain = self.frame(translate=False).tobytes()
         badged = self.frame(translate=True).tobytes()

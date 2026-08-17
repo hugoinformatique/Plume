@@ -81,27 +81,34 @@ EASE_UP = 0.26           # viscous crest rise
 EASE_DOWN = 0.14         # buoyant descent
 
 
-# --- Palette: strictly achromatic, now with real alpha -----------------------
-# (r, g, b, a). The alpha is the whole point: GLASS_FILL at 60% is what lets
-# the desktop through, where the old build used an opaque near-black fill.
-GLASS_FILL = (16, 17, 20, 152)        # smoked glass body
-GLASS_TOP = (255, 255, 255, 30)       # convex dome sheen, fades downward
-GLASS_BOTTOM = (255, 255, 255, 10)    # faint bottom bounce
-RIM_TOP = (255, 255, 255, 110)        # lit upper edge (surface tension)
-RIM_BOTTOM = (255, 255, 255, 38)      # shaded lower edge
-SHADOW = (0, 0, 0, 96)                # contact shadow under the droplet
-STREAK = (255, 255, 255, 64)          # specular streak across the dome
+# --- Palette: frosted glass, achromatic, real per-pixel alpha ----------------
+# (r, g, b, a). Light frosted glass rather than smoked black: the bubble spends
+# its life over documents, mail and browsers, which are overwhelmingly light,
+# and a dark pebble sits *on* them instead of belonging to them.
+#
+# The catch with a white veil is that it vanishes on a white page. What makes
+# it readable there is not more opacity -- that would bring the pebble back --
+# but the frame around it: a wide soft shadow, a hairline contact edge, and a
+# bright inner lip. Those three carry the shape; the fill only frosts.
+GLASS_FILL = (252, 252, 254, 116)     # white veil, ~45%
+GLASS_TOP = (255, 255, 255, 96)       # lit crown, fades by mid-height
+GLASS_BOTTOM = (16, 18, 24, 16)       # faint inner shading at the base
+RIM_INNER = (255, 255, 255, 220)      # bright inner lip: the glass thickness
+RIM_EDGE = (14, 16, 22, 46)           # hairline contact edge, all the way round
+SHADOW = (12, 14, 20, 74)             # wide soft shadow: separates from white
+STREAK = (255, 255, 255, 150)         # specular streak across the crown
 
-TEXT_LIVE = (255, 255, 255, 245)
-TEXT_SPIN = (255, 255, 255, 165)
-TEXT_DONE = (255, 255, 255, 245)
-TEXT_PREVIEW = (255, 255, 255, 215)
+INK = (18, 20, 26)                    # the one dark tone, for text and marks
+TEXT_LIVE = INK + (238,)
+TEXT_SPIN = INK + (150,)
+TEXT_DONE = INK + (238,)
+TEXT_PREVIEW = INK + (205,)
 
-BEAD_CORE = (255, 255, 255, 250)
-BEAD_HALO = (255, 255, 255, 40)
-BEAD_SPEC = (255, 255, 255, 255)
-BAR_LIVE = (255, 255, 255, 235)
-BAR_DIM = (255, 255, 255, 70)
+BEAD_CORE = INK + (235,)              # on light glass the indicator must be dark
+BEAD_HALO = INK + (30,)
+BEAD_SPEC = (255, 255, 255, 190)
+BAR_LIVE = INK + (215,)
+BAR_DIM = INK + (60,)
 
 _STATES = ("listening", "transcribing", "preview", "done")
 
@@ -179,6 +186,20 @@ class GlassRenderer:
         self._shell_cache: dict = {}
         self._font_cache: dict = {}
 
+    def set_width(self, logical_width: int) -> None:
+        """Resize in place, keeping the shell and font caches.
+
+        The live preview changes the label every second or so; rebuilding the
+        renderer each time threw away the cached shell -- two Gaussian blurs --
+        and re-rasterised the font for nothing. The cache is keyed by canvas
+        size, so widths that have already been drawn cost nothing to return to.
+        """
+        width = int(round(logical_width * self.scale))
+        if width == self.width:
+            return
+        self.width = width
+        self.canvas_w = self.width + 2 * self.pad
+
     # -- helpers ----------------------------------------------------------
     def font(self, logical_px: float, bold: bool = True):
         key = (round(logical_px * self.scale), bold)
@@ -217,7 +238,7 @@ class GlassRenderer:
 
     # -- the static glass shell (cached: it only changes with size) --------
     def shell(self) -> "object":
-        """The pill itself -- shadow, glass body, dome, rim. Supersampled."""
+        """The pill itself -- shadow, frosted body, crown, rim. Supersampled."""
         key = (self.canvas_w, self.canvas_h)
         cached = self._shell_cache.get(key)
         if cached is not None:
@@ -229,75 +250,83 @@ class GlassRenderer:
         w, h = self.canvas_w * s, self.canvas_h * s
         pad, rad = self.pad * s, self.radius * s
         pill = (pad, pad, pad + self.width * s, pad + self.height * s)
+        unit = self.scale * s  # one logical pixel, in supersampled pixels
 
         img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
 
-        # 1. Contact shadow: a blurred, slightly offset copy of the pill.
-        #    Drawn on its own layer so the blur cannot bleed into the glass.
-        shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        sdraw = ImageDraw.Draw(shadow)
-        offset = int(round(3 * self.scale * s))
-        self._rounded(
-            sdraw,
-            (pill[0], pill[1] + offset, pill[2], pill[3] + offset),
-            rad, SHADOW,
-        )
-        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=max(1.0, 5.0 * self.scale * s / 2)))
+        # 1. Contact shadow: wide, soft, barely offset. On a white page this is
+        #    the only thing separating a white veil from the paper, so it does
+        #    more work here than it would under a dark bubble.
+        shadow, sdraw = self._layer((w, h))
+        offset = int(round(2.5 * unit))
+        self._rounded(sdraw, (pill[0], pill[1] + offset, pill[2], pill[3] + offset),
+                      rad, SHADOW)
+        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=max(1.0, 6.0 * unit)))
         img.alpha_composite(shadow)
 
-        # 2. Glass body.
-        body = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        bdraw = ImageDraw.Draw(body)
+        body, bdraw = self._layer((w, h))
+        # 2. Frosted body.
         self._rounded(bdraw, pill, rad, GLASS_FILL)
 
-        # 3. Convex dome: a vertical white gradient, clipped to the pill. This
-        #    is what gives the droplet its curvature -- brightest at the top,
-        #    gone by mid-height, with a faint bounce at the very bottom.
-        grad = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        gdraw = ImageDraw.Draw(grad)
+        # 3. Crown: a vertical gradient, clipped to the pill. Bright along the
+        #    top third, neutral in the middle, faintly shaded at the base --
+        #    the read of a curved surface catching the light from above.
+        grad, gdraw = self._layer((w, h))
         top, bottom = pill[1], pill[3]
         span = max(1, bottom - top)
         for y in range(top, bottom):
             t = (y - top) / span
-            if t < 0.5:
-                colour = _lerp_rgba(GLASS_TOP, (255, 255, 255, 0), t / 0.5)
+            if t < 0.45:
+                colour = _lerp_rgba(GLASS_TOP, (255, 255, 255, 0), (t / 0.45) ** 0.85)
             else:
-                colour = _lerp_rgba((255, 255, 255, 0), GLASS_BOTTOM, (t - 0.5) / 0.5)
+                colour = _lerp_rgba((255, 255, 255, 0), GLASS_BOTTOM, (t - 0.45) / 0.55)
             gdraw.line((pill[0], y, pill[2], y), fill=colour)
         mask = Image.new("L", (w, h), 0)
         self._rounded(ImageDraw.Draw(mask), pill, rad, 255)
         body.alpha_composite(Image.composite(grad, Image.new("RGBA", (w, h), (0, 0, 0, 0)), mask))
 
-        # 4. Specular streak just under the top edge.
+        # 4. Specular streak just under the crown. Drawn as one continuous
+        #    capsule and then tapered with a horizontal alpha ramp: stepping
+        #    along it with discrete dots produced a visible dotted line at 1x,
+        #    which reads as a drawing mistake rather than a reflection.
+        streak, stdraw = self._layer((w, h))
         cx = (pill[0] + pill[2]) / 2
-        streak_w = (pill[2] - pill[0]) * 0.42
-        sy = pill[1] + rad * 0.30
-        streak, sdraw2 = self._layer((w, h))
-        sdraw2.line(
-            (cx - streak_w / 2, sy, cx + streak_w / 2, sy),
-            fill=STREAK, width=max(1, int(round(1.2 * self.scale * s))),
-        )
+        half = (pill[2] - pill[0]) * 0.24
+        sy = pill[1] + rad * 0.34
+        thick = max(1.0, 0.9 * unit)
+        self._rounded(stdraw, (cx - half, sy - thick, cx + half, sy + thick),
+                      thick, STREAK)
+        taper = Image.new("L", (w, h), 0)
+        tdraw = ImageDraw.Draw(taper)
+        span_x = max(1, int(2 * half))
+        for i in range(span_x):
+            t = i / span_x
+            x = int(cx - half) + i
+            tdraw.line((x, 0, x, h), fill=int(255 * math.sin(math.pi * t) ** 1.5))
+        streak.putalpha(Image.composite(streak.getchannel("A"),
+                                        Image.new("L", (w, h), 0), taper))
         body.alpha_composite(streak)
 
-        # 5. Rim. A real glass edge catches the light along its top and only
-        #    hints at it underneath, so the bright rim is drawn as a full
-        #    outline and then faded out towards the bottom with a mask. (Not
-        #    `arc()`: on a 200x48 box that draws one enormous ellipse, not the
-        #    outline of the pill.)
-        rim_w = max(1, int(round(1.1 * self.scale * s)))
-        rim = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        self._rounded(ImageDraw.Draw(rim), pill, rad, None, outline=RIM_BOTTOM, width=rim_w)
-        body.alpha_composite(rim)
+        # 5. Rim, in two passes. The outer hairline is what makes the shape
+        #    legible on a white page; the inner lip is the thickness of the
+        #    glass and only catches light along the top.
+        edge, edraw = self._layer((w, h))
+        self._rounded(edraw, pill, rad, None, outline=RIM_EDGE,
+                      width=max(1, int(round(1.0 * unit))))
+        body.alpha_composite(edge)
 
-        rim_lit = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        self._rounded(ImageDraw.Draw(rim_lit), pill, rad, None, outline=RIM_TOP, width=rim_w)
+        inner = int(round(1.1 * unit))
+        lip, ldraw = self._layer((w, h))
+        self._rounded(ldraw, (pill[0] + inner, pill[1] + inner, pill[2] - inner, pill[3] - inner),
+                      max(1, rad - inner), None, outline=RIM_INNER,
+                      width=max(1, int(round(1.0 * unit))))
         ramp = Image.new("L", (w, h), 0)
         rdraw = ImageDraw.Draw(ramp)
         for y in range(top, bottom):
             t = (y - top) / span
-            rdraw.line((0, y, w, y), fill=int(255 * max(0.0, 1.0 - (t / 0.62) ** 1.6)))
-        rim_lit.putalpha(Image.composite(rim_lit.getchannel("A"), Image.new("L", (w, h), 0), ramp))
-        body.alpha_composite(rim_lit)
+            rdraw.line((0, y, w, y), fill=int(255 * max(0.0, 1.0 - (t / 0.55) ** 1.5)))
+        lip.putalpha(Image.composite(lip.getchannel("A"), Image.new("L", (w, h), 0), ramp))
+        body.alpha_composite(lip)
 
         img.alpha_composite(body)
         self._shell_cache[key] = img
@@ -337,8 +366,10 @@ class GlassRenderer:
 
         draw.ellipse((bx - halo_r, by - halo_r, bx + halo_r, by + halo_r), fill=BEAD_HALO)
         draw.ellipse((bx - core_r, by - core_r, bx + core_r, by + core_r), fill=BEAD_CORE)
-        spec_r = core_r * 0.28
-        sx, sy = bx - core_r * 0.45, by - core_r * 0.45
+        # A small, soft catchlight near the top-left edge. Bigger or brighter
+        # and the dark bead starts reading as an eye rather than a droplet.
+        spec_r = core_r * 0.20
+        sx, sy = bx - core_r * 0.38, by - core_r * 0.42
         draw.ellipse((sx - spec_r, sy - spec_r, sx + spec_r, sy + spec_r), fill=BEAD_SPEC)
 
         # Wave bars, right-aligned inside the pill.
@@ -363,27 +394,49 @@ class GlassRenderer:
                 bar_w / 2, colour,
             )
 
-        # Label, between the bead and the bars.
+        img.alpha_composite(overlay)
+        img = img.resize((self.canvas_w, self.canvas_h), Image.LANCZOS)
+
+        # Text goes on *after* the downscale, at native resolution.
+        #
+        # Drawing it on the supersampled layer was wrong twice over: the font
+        # is built at its final pixel size, so on a 2x canvas it came out at
+        # half the intended size, and downsampling a rasterised glyph destroys
+        # the hinting FreeType applied to it. Between the two, the label read
+        # as small and mushy -- which is what "still pixelated" was pointing at.
+        # Shapes need the supersampling (ImageDraw has no antialiasing); text
+        # does not (FreeType antialiases it natively).
+        draw = ImageDraw.Draw(img)
+        pad_f = self.pad
+        cy_f = pad_f + self.height / 2.0
+        bars_left = (base_x / s)
+
+        text_x = pad_f + 38 * self.scale
+        bars_edge = bars_left - 8 * self.scale
+
+        # Translation badge, inline before the label. It used to sit in the
+        # top-right corner, where it collided with the wave bars; here it reads
+        # as a prefix to the state and nothing else has to move.
+        if translate:
+            badge_font = self.font(8.5)
+            badge = "FR→EN"
+            draw.text((text_x, cy_f), badge, font=badge_font, fill=INK + (120,), anchor="lm")
+            try:
+                box = draw.textbbox((0, 0), badge, font=badge_font)
+                text_x += (box[2] - box[0]) + 7 * self.scale
+            except Exception:
+                text_x += 30 * self.scale
+
         if label:
             colour = {
                 "listening": TEXT_LIVE, "transcribing": TEXT_SPIN,
                 "preview": TEXT_PREVIEW, "done": TEXT_DONE,
             }.get(state, TEXT_LIVE)
             font = self.font(12.5)
-            text_x = pad + 38 * self.scale * s
-            text_right = base_x - 8 * self.scale * s
-            draw.text((text_x, cy), self._fit(label, font, text_right - text_x),
+            draw.text((text_x, cy_f), self._fit(label, font, bars_edge - text_x),
                       font=font, fill=colour, anchor="lm")
 
-        # Translation badge: monochrome by design -- the palette is
-        # achromatic, so the mode is signalled by a mark, never by a hue.
-        if translate:
-            font = self.font(8.0)
-            draw.text((right - 8 * self.scale * s, pad + 9 * self.scale * s),
-                      "FR→EN", font=font, fill=(255, 255, 255, 150), anchor="rm")
-
-        img.alpha_composite(overlay)
-        return img.resize((self.canvas_w, self.canvas_h), Image.LANCZOS)
+        return img
 
     def _fit(self, text: str, font, max_px: float) -> str:
         """Ellipsize from the *left*: for live text the newest words matter."""
@@ -774,14 +827,19 @@ class FloatingBubble:
         renderer = self._renderer
         if renderer is None:
             return
-        needed = 38 + renderer.text_width(label) + 10 + (BAR_COUNT - 1) * BAR_GAP + 16 + 10
-        target = int(max(BUBBLE_W, min(PREVIEW_W_MAX, needed)))
+        badge = 38 if self._translate else 0
+        needed = 38 + badge + renderer.text_width(label) + 10 + (BAR_COUNT - 1) * BAR_GAP + 16 + 10
+        # Quantised, and never shrinking while the bubble is up: live preview
+        # text grows word by word, and a pill that re-fits itself on every word
+        # jitters continuously in the corner of the eye.
+        step = 48
+        target = int(max(BUBBLE_W, min(PREVIEW_W_MAX, math.ceil(needed / step) * step)))
+        if self._visible and target < self._pill_w:
+            return
         if target == self._pill_w:
             return
         self._pill_w = target
-        self._renderer = GlassRenderer(width=target, scale=self._scale)
-        # Keep the renderer's font/shell caches warm across resizes only when
-        # the size is unchanged; a new width needs a new shell anyway.
+        renderer.set_width(target)
         if self._win is not None:
             try:
                 self._win.geometry(f"{self._renderer.canvas_w}x{self._renderer.canvas_h}")

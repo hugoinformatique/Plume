@@ -5,7 +5,7 @@ antivirus/EDR). Il décrit ce que l'application fait réellement, fichier par
 fichier et capacité par capacité, y compris les points qui peuvent légitimement
 faire réagir un antivirus.
 
-Version couverte : **1.1.0**. Code source : `https://github.com/hugoinformatique/Plume` (MIT).
+Version couverte : **1.2.0**. Code source : `https://github.com/hugoinformatique/Plume` (MIT).
 
 ---
 
@@ -48,7 +48,7 @@ Tout est sous `%APPDATA%\Plume\` (profil utilisateur, pas de droits admin) :
 | Chemin | Contenu | Durée de vie |
 |---|---|---|
 | `config.json` | Réglages, dictionnaire de correction, **historique des ~12 dernières dictées** (texte) | Persistant, supprimable à la main |
-| `recordings\` | Fichiers `.wav` temporaires de la dictée en cours | Supprimés juste après la transcription ; un nettoyage des résidus > 24 h a lieu au démarrage |
+| `recordings\` | Fichiers `.wav` temporaires de la dictée en cours, et les extraits de quelques secondes que l'aperçu en direct transcrit pendant qu'on parle | Supprimés juste après chaque transcription ; un nettoyage des résidus > 24 h a lieu au démarrage |
 | `debug.log` | Trace de diagnostic locale (actions UI, activations du raccourci, erreurs). **Ne contient pas le texte dicté ni l'audio** | Rotation à 1 Mo, une génération conservée |
 
 Installation : `%LOCALAPPDATA%\Programs\Plume\` (installeur par utilisateur,
