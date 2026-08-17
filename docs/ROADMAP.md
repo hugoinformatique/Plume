@@ -1,44 +1,59 @@
 # Feuille de route (Roadmap) — Plume
 
-Ce document consigne les fonctionnalités prioritaires sélectionnées pour les prochaines itérations de Plume.
+Ce document consigne les fonctionnalités prioritaires de Plume et leur état.
 
 ---
 
-## 🚀 Prochaines fonctionnalités prioritaires
+## ✅ Livré en v1.1.0
 
 ### 1. 🌐 Mode Traduction instantanée (FR ➔ EN)
-* **Objectif** : Permettre à l'utilisateur de dicter en français et de coller instantanément le texte traduit en anglais dans l'application active.
-* **Déclenchement** :
-  * Raccourci clavier dédié (ex. `Ctrl + Maj + Espace` ou combinaison personnalisable dans Réglages).
-  * Ou bouton / bascule rapide dans l'interface de dictée.
-* **Architecture technique** :
-  * Exploitation de la capacité native de Whisper (`task="translate"`, `target_language="en"`).
-  * 100 % local, zéro latence additionnelle, aucune dépendance externe requise.
-  * Indicateur visuel dédié sur la bulle liquide (ex. badge ou lueur saphir spécifique).
+Dicter en français, coller en anglais.
+
+* **Déclenchement** : raccourci dédié, `Ctrl + Maj + Espace` par défaut,
+  personnalisable dans Réglages, et désactivable.
+* **Technique** : `task="translate"` — la seconde tâche native de Whisper, dans
+  la même passe et le même modèle. 100 % local, aucune latence additionnelle,
+  aucune dépendance externe (`backends.py`).
+* **Indicateur** : badge `FR→EN` sur la bulle. La DA étant strictement
+  achromatique, le mode se signale par une marque, jamais par une couleur.
+* **Limite connue** : Whisper ne traduit que **vers l'anglais**. Les commandes
+  vocales de ponctuation françaises ne sont pas appliquées à une sortie
+  anglaise — elles la déformeraient.
+
+### 2. 💬 Aperçu du texte dans la bulle (Live Preview)
+Le texte reconnu s'affiche dans la bulle au moment où il est inséré : la bulle
+s'élargit pour l'accueillir (jusqu'à 560 px), tronque par la gauche pour garder
+la fin de la phrase lisible, et reste affichée plus longtemps quand le texte est
+long. Réglage « Aperçu dans la bulle », activé par défaut.
+
+* **Ce qui n'est pas fait, et pourquoi** : l'aperçu *pendant* que l'on parle
+  demanderait de transcrire des extraits en continu, donc une seconde inférence
+  sur l'iGPU qui exécute déjà la transcription finale — au prix de la latence
+  que le produit vient d'optimiser. L'aperçu se fait donc en fin de dictée.
+
+### 3. ✍️ Commandes vocales d'édition & formatage
+Étendues dans `sttlocal.py` (`apply_spoken_commands`), couvertes par
+`scripts/test_commands.py` :
+
+* **Structure** : « à la ligne » (`\n`), « nouveau paragraphe » / « saut de
+  ligne » (`\n\n`, majuscule automatique ensuite), « tiret » / « puce » (liste
+  à puces).
+* **Ponctuation** : « deux points », « point-virgule », « points de
+  suspension », « ouvrez / fermez les guillemets » (« … »), « ouvrez / fermez
+  la parenthèse », plus la ponctuation déjà présente.
+* **Édition** : « effacer » / « effacer le dernier mot », « tout effacer » /
+  « annuler ». Ce ne sont pas des substitutions : le texte est replié de gauche
+  à droite, car ces commandes suppriment ce qui a déjà été dicté.
+* **Typographie française** : espace avant `: ; ! ?` et à l'intérieur des
+  guillemets, pas avant `,` ni `.`. Le texte part dans des e-mails.
 
 ---
 
-### 2. 💬 Affichage en direct dans la bulle flottante (Live Preview)
-* **Objectif** : Afficher un retour visuel direct du texte reconnu au cours ou à la fin de la dictée, avant le collage effectif.
-* **Détails de conception** :
-  * Intégration harmonieuse dans la bulle **Liquid Glass / Goutte d'eau** ([floating_bubble.py](file:///home/agent/repos/Plume/floating_bubble.py)).
-  * Animation douce avec fondu pour prévisualiser les mots clés transcrits.
-  * Confirmation visuelle ultra-confortable pour l'utilisateur sans quitter des yeux son document de travail.
+## 🔭 Pistes suivantes
 
----
-
-### 3. ✍️ Commandes vocales d'édition & formatage d'emails
-* **Objectif** : Rendre la dictée de longs textes et d'e-mails professionnelle et fluide grâce à des commandes de mise en page vocales intelligentes.
-* **Commandes de structure & saut de ligne** :
-  * `« à la ligne »` ➔ retour à la ligne simple (`\n`).
-  * `« nouveau paragraphe »` / `« saut de ligne »` ➔ saut de paragraphe double (`\n\n`) avec majuscule automatique sur la phrase suivante.
-  * `« tiret »` / `« puce »` ➔ création automatique de listes à puces.
-* **Ponctuation & typographie avancée** :
-  * `« deux points »`, `« point-virgule »`, `« points de suspension »`.
-  * `« ouvrez les guillemets »` / `« fermez les guillemets »`.
-  * `« ouvrez les parenthèses »` / `« fermez les parenthèses »`.
-* **Commandes d'édition d'action** :
-  * `« effacer »` / `« effacer le dernier mot »` ➔ suppression du segment précédent.
-  * `« tout effacer »` / `« annuler »`.
-* **Architecture** :
-  * Extension du pipeline de post-traitement dans [sttlocal.py](file:///home/agent/repos/Plume/sttlocal.py) (`apply_spoken_commands`).
+* Signature Authenticode de l'installeur (chaîne CI déjà en place, il manque le
+  certificat) — voir [SECURITY.md](SECURITY.md).
+* Aperçu en direct pendant la dictée, si un modèle de streaming assez léger
+  permet de le faire sans concurrencer la passe finale sur l'iGPU.
+* Autres langues cibles que l'anglais, ce qui suppose un modèle de traduction
+  séparé et non plus la tâche native de Whisper.

@@ -10,10 +10,15 @@ recognition runs on the machine, on the Intel Arc iGPU.
 > to get the installer, run it, and report back.
 
 - global hotkey (default `Ctrl + Espace`), press-to-toggle or push-to-talk;
-- a floating "listening" bubble that reacts to your voice;
+- a floating translucent-glass bubble that reacts to your voice and shows the
+  text it recognised;
 - transcription with Whisper `small`, FP16, on the Intel Arc iGPU (OpenVINO);
+- **instant FR->EN translation** on a second shortcut (`Ctrl + Maj + Espace`),
+  same model, same pass, still entirely local;
 - automatic paste into the active app, or clipboard only;
-- filler/repetition cleanup, spoken punctuation commands, correction dictionary;
+- spoken punctuation, layout and **edit** commands ("nouveau paragraphe",
+  "ouvrez les guillemets", "effacer le dernier mot"…), French typography;
+- filler/repetition cleanup and a correction dictionary;
 - local history of the last dictations.
 
 Everything — audio, transcripts, settings — stays in `%APPDATA%\Plume`.
@@ -28,12 +33,12 @@ Everything — audio, transcripts, settings — stays in `%APPDATA%\Plume`.
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Code map: modules, the UI<->Python bridge, packaging, where data lives. |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | `config.json` schema, vocabulary/correction-dictionary format, hotkey format. |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, coding conventions, how to cut a release. |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Prioritized features for the next iterations. |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What shipped in 1.1.0 and what is being considered next. |
 | [CHANGELOG.md](CHANGELOG.md) | Version history. |
 
 ## Install
 
-Download `Plume-Setup-1.0.0.exe` from the releases and run it. It installs per
+Download `Plume-Setup-1.1.0.exe` from the releases and run it. It installs per
 user (no admin rights) into `%LOCALAPPDATA%\Programs\Plume` and bundles
 everything it needs, including the speech model — there is no first-run
 download and no separate runtime to install.

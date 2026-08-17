@@ -5,7 +5,7 @@ antivirus/EDR). Il décrit ce que l'application fait réellement, fichier par
 fichier et capacité par capacité, y compris les points qui peuvent légitimement
 faire réagir un antivirus.
 
-Version couverte : **1.0.0**. Code source : `https://github.com/hugoinformatique/Plume` (MIT).
+Version couverte : **1.1.0**. Code source : `https://github.com/hugoinformatique/Plume` (MIT).
 
 ---
 
@@ -26,7 +26,8 @@ le poste.
 C'est le **seul** flux sortant du produit. Il n'y a :
 
 - aucune télémétrie, aucun analytics, aucun rapport de crash distant ;
-- aucun appel à un service de transcription ou à une API d'IA ;
+- aucun appel à un service de transcription, de traduction ou à une API d'IA —
+  la traduction FR→EN est faite par le même modèle Whisper embarqué, en local ;
 - aucun téléchargement de modèle au premier lancement — le modèle est dans
   l'installeur (c'est ce qui explique sa taille) ;
 - aucun serveur, aucun port en écoute côté application.
@@ -70,6 +71,7 @@ le point à évaluer** — l'historique peut être vidé depuis l'onglet Histori
 | **Registre `HKCU\...\CurrentVersion\Run`** | Option « Démarrer avec Windows » | Écrit/supprimé uniquement quand l'utilisateur bascule l'interrupteur. HKCU seul, jamais HKLM. |
 | **iGPU Intel via OpenVINO** | Exécution du modèle | Calcul local. |
 | **WebView2 (Edge)** | L'interface est du HTML local rendu par pywebview | Charge un fichier `ui/index.html` livré dans le paquet, **pas** de contenu distant. |
+| **Fenêtre superposée (layered window)** | La bulle flottante translucide | L'app *dessine* une image et la pousse à l'écran (`UpdateLayeredWindow`). Elle ne **lit jamais** les pixels de l'écran : l'effet de verre est obtenu par transparence, pas par capture et floutage de l'arrière-plan. Aucune capacité de capture d'écran n'est utilisée nulle part dans le produit. |
 
 Pas d'élévation de privilèges, pas d'injection dans d'autres processus, pas de
 hook noyau, pas d'accès aux fichiers de l'utilisateur en dehors de `%APPDATA%\Plume`.

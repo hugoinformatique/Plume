@@ -39,6 +39,15 @@ DEFAULTS = {
     "bubble_xy": None,             # [x, y] once the user has dragged the bubble
     "hotkey": "<ctrl>+<space>",   # pynput format
     "hotkey_display": "Ctrl + Espace",
+    # Second shortcut: same dictation, but Whisper decodes straight to English
+    # (task="translate"). Empty string disables it.
+    "hotkey_translate": "<ctrl>+<shift>+<space>",
+    "hotkey_translate_display": "Ctrl + Maj + Espace",
+    "translate_enabled": True,
+    # Show the recognised text in the floating bubble when it lands, instead of
+    # just "Collé": the user confirms what was inserted without looking away
+    # from their document.
+    "bubble_preview": True,
     "autopaste": True,
     "autostart": False,
     # Off by default: the app makes no outbound connection unless the user asks

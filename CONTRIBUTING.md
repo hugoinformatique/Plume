@@ -16,7 +16,11 @@ Optional, only needed to touch the OpenVINO backend:
 python -m pip install -r requirements-openvino.txt
 ```
 
-There is no automated test suite yet. Validate changes by running the app
+Two test scripts cover the pure logic (`python scripts/test_bubble_unit.py`
+for the glass renderer and the bubble's animation state, `python
+scripts/test_commands.py` for the spoken punctuation/layout/edit commands,
+`python scripts/test_hotkeys.py` for the global shortcut matcher); they need
+no display, no audio stack and no keyboard hook. Everything else is manual: run the app
 (`python plume.py`) through the manual flow in
 [GUIDE_TEST.md](GUIDE_TEST.md), and
 `python -m py_compile <file>.py` at minimum before committing. If you touch

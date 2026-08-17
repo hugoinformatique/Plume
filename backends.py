@@ -47,7 +47,8 @@ class Transcriber(Protocol):
         ...
 
     def transcribe(self, path: Path, hotwords: str | None = None,
-                   initial_prompt: str | None = None) -> TranscriptionResult:
+                   initial_prompt: str | None = None,
+                   task: str = "transcribe") -> TranscriptionResult:
         ...
 
 
@@ -142,13 +143,18 @@ class FasterWhisperBackend:
         )
 
     def transcribe(self, path: Path, hotwords: str | None = None,
-                   initial_prompt: str | None = None) -> TranscriptionResult:
+                   initial_prompt: str | None = None,
+                   task: str = "transcribe") -> TranscriptionResult:
         self.load()
         assert self._model is not None
         started = time.perf_counter()
         segments, info = self._model.transcribe(
             str(path),
             language=self.language,
+            # "translate" is Whisper's own second task: it decodes straight to
+            # English from the source language, in the same pass. No second
+            # model, no network, no added latency.
+            task=task if task in ("transcribe", "translate") else "transcribe",
             vad_filter=self.vad,
             beam_size=self.beam_size,
             condition_on_previous_text=False,
@@ -235,12 +241,17 @@ class OpenVINOBackend:
         self._pipeline = ov_genai.WhisperPipeline(str(self.model_dir), self.device, **kwargs)
 
     def transcribe(self, path: Path, hotwords: str | None = None,
-                   initial_prompt: str | None = None) -> TranscriptionResult:
+                   initial_prompt: str | None = None,
+                   task: str = "transcribe") -> TranscriptionResult:
         self.load()
         assert self._pipeline is not None
         audio = read_wav_mono_f32(path)
 
-        gen_kwargs: dict[str, object] = {"task": "transcribe"}
+        # On "translate" Whisper still needs the *source* language token: it
+        # translates from that language into English.
+        if task not in ("transcribe", "translate"):
+            task = "transcribe"
+        gen_kwargs: dict[str, object] = {"task": task}
         lang_token = self._language_token()
         if lang_token is not None:
             gen_kwargs["language"] = lang_token

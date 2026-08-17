@@ -402,6 +402,18 @@
             <button class="hotcap" id="hotcap">Ctrl + Espace</button>
           </div>
           <div class="row">
+            <div><div class="lbl">Traduction instantanée</div><div class="sub">Dicter en français, coller en anglais</div></div>
+            <div class="tg on" id="tgTranslate" role="switch" aria-checked="true" aria-label="Traduction instantanée" tabindex="0"></div>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Raccourci traduction</div><div class="sub">Clique puis tape la combinaison</div></div>
+            <button class="hotcap" id="hotcapTr">Ctrl + Maj + Espace</button>
+          </div>
+          <div class="row">
+            <div><div class="lbl">Aperçu dans la bulle</div><div class="sub">Afficher le texte reconnu avant de le quitter des yeux</div></div>
+            <div class="tg on" id="tgPreview" role="switch" aria-checked="true" aria-label="Aperçu dans la bulle" tabindex="0"></div>
+          </div>
+          <div class="row">
             <div><div class="lbl">Maintenir pour parler</div><div class="sub">Tenir le raccourci, pas deux appuis</div></div>
             <div class="tg" id="tgPtt" role="switch" aria-checked="false" aria-label="Maintenir pour parler" tabindex="0"></div>
           </div>
@@ -533,6 +545,8 @@
   const tgPaste=document.getElementById("tgPaste"), tgStartup=document.getElementById("tgStartup");
   const tgPtt=document.getElementById("tgPtt"), tgSound=document.getElementById("tgSound");
   const tgAutoUpdate=document.getElementById("tgAutoUpdate");
+  const tgTranslate=document.getElementById("tgTranslate");
+  const tgPreview=document.getElementById("tgPreview");
   function wireToggle(el, settingKey){
     // Bascule optimiste, puis retour en arrière si le moteur refuse.
     const flip=()=>{ const on=el.classList.toggle("on"); el.setAttribute("aria-checked", on);
@@ -553,6 +567,8 @@
   wireToggle(tgPtt, "push_to_talk");
   wireToggle(tgSound, "sound_feedback");
   wireToggle(tgAutoUpdate, "auto_update");
+  wireToggle(tgTranslate, "translate_enabled");
+  wireToggle(tgPreview, "bubble_preview");
 
   function applyConfig(c){ if(!c) return;
     const set=(id,v)=>{ const el=document.getElementById(id); if(el&&v!=null) el.value=v; };
@@ -561,6 +577,9 @@
     setTg(tgPaste, c.autopaste); setTg(tgStartup, c.autostart);
     setTg(tgPtt, c.push_to_talk); setTg(tgSound, c.sound_feedback !== false);
     setTg(tgAutoUpdate, c.auto_update);
+    setTg(tgTranslate, c.translate_enabled !== false);
+    setTg(tgPreview, c.bubble_preview !== false);
+    if(c.hotkey_translate_display && hotcapTr) hotcapTr.textContent=c.hotkey_translate_display;
     if(c.hotkey_display){ document.getElementById("hotcap").textContent=c.hotkey_display; document.getElementById("hotHint").textContent=c.hotkey_display; }
   }
   // Chargement de l'état réel : passe par `bridgeReady`, donc fonctionne que
@@ -711,40 +730,49 @@
     historySearch.addEventListener("keydown", e=>{ if(e.key==="Escape" && historySearch.value){ historySearch.value=""; renderHistory(); } });
   }
 
+  // La capture de raccourci sert deux boutons (dictée et traduction), d'où la
+  // fabrique : `apply` renvoie la promesse du moteur, `hint` est le rappel
+  // affiché sur l'écran de dictée (absent pour la traduction).
+  function wireHotkeyCapture(button, hint, apply){
+    if(!button) return;
+    let capturing=false;
+    button.addEventListener("click", ()=>{
+      // Un 2e clic pendant la capture mémoriserait « Tape la combinaison… »
+      // comme libellé précédent et armerait un 2e écouteur.
+      if(capturing) return;
+      capturing=true;
+      const prev=button.textContent, prevHint=hint && hint.textContent;
+      button.textContent="Tape la combinaison…";
+      const h=e=>{ e.preventDefault(); e.stopPropagation();
+        if(["Control","Alt","Shift","Meta"].includes(e.key)) return;
+        const parts=[]; if(e.ctrlKey)parts.push("Ctrl"); if(e.altKey)parts.push("Alt"); if(e.shiftKey)parts.push("Maj"); if(e.metaKey)parts.push("Win");
+        const aliases={ " ":"Espace", "Spacebar":"Espace", "Enter":"Entrée", "Escape":"Échap", "ArrowUp":"Haut", "ArrowDown":"Bas", "ArrowLeft":"Gauche", "ArrowRight":"Droite" };
+        const k=aliases[e.key] || (e.key.length===1 ? e.key.toUpperCase() : e.key);
+        parts.push(k);
+        const s=parts.join(" + ");
+        button.textContent=s; if(hint) hint.textContent=s;
+        window.removeEventListener("keydown",h); capturing=false;
+        // Le nouveau libellé n'est conservé que si le moteur confirme.
+        apply(s).then(r=>{
+          if(r && r.ok===false){
+            button.textContent=prev; if(hint) hint.textContent=prevHint;
+            showError(r.error || ("Raccourci « " + s + " » refusé"));
+            return;
+          }
+          const conf = r && r.hotkey_display;
+          if(conf){ button.textContent=conf; if(hint) hint.textContent=conf; }
+          // Raccourci armé mais non enregistré : on garde le libellé, on prévient.
+          if(r && r.warning) showError(r.warning);
+        });
+      };
+      window.addEventListener("keydown",h);
+    });
+  }
   const hotcap=document.getElementById("hotcap");
   const hotHint=document.getElementById("hotHint");
-  let capturing=false;
-  hotcap.addEventListener("click", ()=>{
-    // Un 2e clic pendant la capture mémoriserait « Tape la combinaison… »
-    // comme libellé précédent et armerait un 2e écouteur.
-    if(capturing) return;
-    capturing=true;
-    const prev=hotcap.textContent, prevHint=hotHint.textContent;
-    hotcap.textContent="Tape la combinaison…";
-    const h=e=>{ e.preventDefault(); e.stopPropagation();
-      if(["Control","Alt","Shift","Meta"].includes(e.key)) return;
-      const parts=[]; if(e.ctrlKey)parts.push("Ctrl"); if(e.altKey)parts.push("Alt"); if(e.shiftKey)parts.push("Maj"); if(e.metaKey)parts.push("Win");
-      const aliases={ " ":"Espace", "Spacebar":"Espace", "Enter":"Entrée", "Escape":"Échap", "ArrowUp":"Haut", "ArrowDown":"Bas", "ArrowLeft":"Gauche", "ArrowRight":"Droite" };
-      const k=aliases[e.key] || (e.key.length===1 ? e.key.toUpperCase() : e.key);
-      parts.push(k);
-      const s=parts.join(" + ");
-      hotcap.textContent=s; hotHint.textContent=s;
-      window.removeEventListener("keydown",h); capturing=false;
-      // Le nouveau libellé n'est conservé que si le moteur confirme.
-      api.set_hotkey(s).then(r=>{
-        if(r && r.ok===false){
-          hotcap.textContent=prev; hotHint.textContent=prevHint;
-          showError(r.error || ("Raccourci « " + s + " » refusé"));
-          return;
-        }
-        const conf = r && r.hotkey_display;
-        if(conf){ hotcap.textContent=conf; hotHint.textContent=conf; }
-        // Raccourci armé mais non enregistré : on garde le libellé, on prévient.
-        if(r && r.warning) showError(r.warning);
-      });
-    };
-    window.addEventListener("keydown",h);
-  });
+  const hotcapTr=document.getElementById("hotcapTr");
+  wireHotkeyCapture(hotcap, hotHint, s=>api.set_hotkey(s));
+  wireHotkeyCapture(hotcapTr, null, s=>api.set_translate_hotkey(s));
 
   window.plume = {
     setStatus:(t,mini)=>{ const el=document.getElementById("status");

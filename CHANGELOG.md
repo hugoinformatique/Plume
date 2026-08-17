@@ -5,6 +5,61 @@ Versions correspond to `v*` git tags, each built and published by
 [CONTRIBUTING.md#releasing](CONTRIBUTING.md#releasing) for the release
 process.
 
+## v1.1.0
+
+La bulle devient réellement du verre, et les trois fonctionnalités de la
+feuille de route sont livrées.
+
+- **La bulle n'est plus pixelisée, et n'est plus un galet noir.** Les deux
+  défauts avaient la même cause : elle était dessinée avec des polygones sur un
+  canvas Tk, dans une fenêtre rendue transparente par *couleur clé*. Le canvas
+  Tk n'anticrénèle rien et une couleur clé est une transparence sur 1 bit —
+  d'où l'escalier sur chaque courbe, qu'aucun réglage DPI ne pouvait corriger.
+  Le corps, lui, était un aplat quasi opaque.
+  La bulle est désormais dessinée avec Pillow (suréchantillonnée) et poussée
+  dans une **fenêtre superposée Windows** (`UpdateLayeredWindow`), donc avec une
+  **couche alpha par pixel** : bords lissés, corps réellement translucide, ombre
+  de contact douce, arête supérieure éclairée. Le bureau se voit à travers.
+  **Rien n'est lu depuis l'écran** : l'effet vient de la transparence, pas d'une
+  capture floutée de l'arrière-plan — voir [docs/SECURITY.md](docs/SECURITY.md).
+- **Traduction instantanée FR → EN** sur un second raccourci
+  (`Ctrl + Maj + Espace` par défaut, modifiable, désactivable). C'est la seconde
+  tâche native de Whisper (`task="translate"`) : même modèle, même passe, aucune
+  latence ni dépendance en plus, toujours 100 % local. Badge `FR→EN` sur la
+  bulle — la DA restant achromatique, le mode se signale par une marque et non
+  par une couleur. Un raccourci identique à celui de la dictée est refusé : deux
+  écouteurs sur la même combinaison rendraient le mode aléatoire.
+- **Aperçu du texte dans la bulle.** En fin de dictée, la bulle affiche le texte
+  réellement inséré au lieu d'un simple « Collé » : elle s'élargit pour
+  l'accueillir, tronque **par la gauche** pour garder la fin de la phrase
+  lisible, et reste affichée plus longtemps quand le texte est long. Réglage
+  « Aperçu dans la bulle », activé par défaut.
+- **Commandes vocales d'édition et de mise en page.** « nouveau paragraphe »,
+  « tiret » / « puce » (listes), « points de suspension », « ouvrez / fermez les
+  guillemets », « ouvrez / fermez la parenthèse », et surtout les commandes qui
+  *modifient* le texte déjà dicté : « effacer », « effacer le dernier mot »,
+  « tout effacer », « annuler ». Ces dernières ne sont pas des substitutions :
+  le texte est replié de gauche à droite. La **typographie française** est
+  respectée (espace avant `: ; ! ?`, guillemets français), parce que ce texte
+  part dans des e-mails.
+- **Un raccourci contenu dans un autre ne déclenche plus les deux.** La
+  détection testait « toutes les touches du raccourci sont enfoncées » : avec
+  `Ctrl+Maj+Espace`, `{ctrl, espace}` est un sous-ensemble de ce qui est
+  enfoncé, donc la dictée normale partait **en même temps** que la traduction,
+  et l'anti-rebond décidait laquelle gagnait. Un raccourci ne se déclenche
+  désormais que si aucun modificateur *supplémentaire* n'est tenu. Effet de
+  bord souhaitable : `Ctrl+Alt+Espace` ne déclenche plus `Ctrl+Espace`.
+- **Tests.** `scripts/test_bubble_unit.py` (13 tests) vérifie ce que la capture
+  d'écran d'une revue ne montre pas : coins réellement transparents, corps ni
+  opaque ni invisible, alphas intermédiaires sur la courbe — c'est-à-dire
+  l'absence de retour du bug de pixelisation — et la prémultiplication exigée
+  par `UpdateLayeredWindow`. `scripts/test_commands.py` (14 tests) couvre les
+  commandes vocales, dont les pièges d'ordre (« points de suspension » ne doit
+  pas être mangé par « point »). `scripts/test_hotkeys.py` (5 tests) verrouille
+  la règle ci-dessus : pour un état clavier donné, exactement un raccourci
+  correspond. Les anciens tests, écrits contre le canvas Tk disparu, sont
+  supprimés.
+
 ## v1.0.0
 
 Première version destinée à la production. Le produit se resserre sur une

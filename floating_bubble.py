@@ -1,19 +1,34 @@
-"""Native Tk floating "listening" bubble, self-contained and thread-safe.
+"""Native floating "listening" bubble: real translucent glass, thread-safe.
 
-Liquid Glass / Water Droplet (Goutte d'eau) aesthetic:
-Strictly achromatic monochrome palette (pure blacks, translucent smoked glass,
-convex specular highlights, and crisp pure whites). No hue/color accents.
-Ultra-fluid 120Hz-ready animation loop with viscous liquid wave physics.
+Rendering
+---------
+The bubble is drawn with Pillow into an RGBA image and pushed to a Windows
+*layered window* through ``UpdateLayeredWindow``. That is what makes it look
+like glass rather than a black pebble:
 
+- **Per-pixel alpha.** The desktop genuinely shows through the body, and the
+  rounded edge fades over a pixel instead of being cut on a colour key. The
+  previous implementation drew Tk canvas polygons on a window keyed with
+  ``-transparentcolor``: Tk's canvas has no antialiasing and a colour key is
+  1-bit transparency, so every curve came out as a staircase -- the
+  "pixelated" bubble. No amount of DPI awareness could fix that, because the
+  jagged edges were not a scaling artefact.
+- **Nothing is read back from the screen.** The glass is translucent, not
+  blurred: a blur would mean capturing the pixels behind the window, i.e.
+  giving a dictation app a screen-capture capability, which is not something
+  to hand a security review for a decoration. See docs/SECURITY.md.
+
+Threading
+---------
 Plume's main thread belongs to ``webview.start()``, so this module owns its
-*own* Tk root running in its own daemon thread. Every public method may be
-called from any thread (hotkey listener, transcription worker, pywebview
-bridge): work is marshalled onto the Tk thread through a queue drained by a
-small poller, so no Tk object is ever touched from outside that thread.
+*own* Tk root (used purely as a window + event source) running in its own
+daemon thread. Every public method may be called from any thread: work is
+marshalled onto that thread through a queue, so no Tk object is ever touched
+from outside it.
 
-It is deliberately defensive. If tkinter is missing, or the root cannot be
-created, or any Tk call blows up, the bubble silently becomes a no-op and the
-dictation keeps working -- a decoration must never take the app down.
+It is deliberately defensive. If tkinter or Pillow is missing, or any call
+blows up, the bubble silently becomes a no-op and dictation keeps working --
+a decoration must never take the app down.
 """
 
 from __future__ import annotations
@@ -24,7 +39,7 @@ import sys
 import threading
 
 from config import debug_log
-from ui_theme import FONT_UI, mix
+
 
 # --- Windows DPI awareness (must be called BEFORE any Tk window) ------------
 def _enable_dpi_awareness() -> None:
@@ -42,93 +57,58 @@ def _enable_dpi_awareness() -> None:
         except Exception:
             pass
 
+
 _enable_dpi_awareness()
 
-# --- Geometry & Fluid Timing -------------------------------------------------
-CHROMA = "#010101"       # transparent-color key -> rounded corners on Windows
-BUBBLE_W = 200           # compact premium pill width
-BUBBLE_H = 48            # compact premium pill height
-RADIUS = 21              # organic fluid pebble / water droplet curvature
+
+# --- Geometry, in logical units at 96 dpi ------------------------------------
+BUBBLE_W = 200           # compact pill width
+BUBBLE_H = 48            # pill height
+RADIUS = 24              # fully rounded ends: r == h/2 reads as a droplet
+PAD = 16                 # room around the pill for the drop shadow
 MARGIN = 36              # distance from the top/bottom edge of the work area
+PREVIEW_W_MAX = 560      # the pill may grow this wide to show recognised text
 
-BAR_COUNT = 5            # 5 voice-reactive fluid wave ripples (compact)
-BAR_W = 3.5              # thin rounded droplet capsule width
-BAR_GAP = 8.0            # tight spacing
-BAR_MAX = 13.0           # max amplitude (half-height, keeps bars inside the pill)
+BAR_COUNT = 5
+BAR_W = 3.5
+BAR_GAP = 8.0
+BAR_MAX = 13.0
 
-# 120Hz / High-Refresh-Rate fluid easing (tuned for 10-12ms frame interval)
-FRAME_MS = 12            # ~85-100 fps ultra-fluid animation loop
+SS = 2                   # supersampling factor: everything is drawn at SSx
+FRAME_MS = 25            # ~40 fps; each frame is a full re-render + blit
 PUMP_MS = 25             # cross-thread command poll
-EASE_UP = 0.26           # smooth, viscous liquid crest rise
-EASE_DOWN = 0.14         # buoyant, floaty fluid descent
-
-# --- Liquid Glass Monochrome Palette (DA: Noir & Blanc sobre) ----------------
-# Strictly achromatic: pure blacks, smoked glass depths, and brilliant white reflections
-SHADOW_DEPTH = "#000000"         # soft contact shadow beneath the glass droplet
-GLASS_BASE = "#0F0F0F"           # dark obsidian liquid glass body
-GLASS_INNER = "#171717"          # inner refracted glass volume
-GLASS_DOME = "#222222"           # ambient inner glass illumination
-SPECULAR_CRESCENT = "#2C2C2C"    # top convex meniscus glare polygon
-SPECULAR_ARC = "#555555"         # upper glass curvature reflection band
-SPECULAR_STREAK = "#AAAAAA"      # intense specular light streak
-SPECULAR_APEX = "#FFFFFF"        # pure brilliant white reflection apex
-CAUSTIC_LIP = "#242424"          # bottom internal reflection bounce
-MENISCUS_BORDER = "#3A3A3A"      # crisp glass surface tension rim
-
-# Typography
-TEXT_LIVE = "#FFFFFF"            # crisp pure white label
-TEXT_SPIN = "#8E8E8E"            # softened translucent label
-TEXT_DONE = "#FFFFFF"            # pure white confirmation
-
-# Monochrome States (Listening / Transcribing / Done)
-AURA_LIVE = "#242424"            # breathing liquid aura
-LIVE_CORE = "#FFFFFF"            # brilliant white liquid droplet bead
-LIVE_BAR = "#FFFFFF"             # crisp pure white wave bars
-
-AURA_SPIN = "#1C1C1C"            # subtle transcribing halo
-SPIN_CORE = "#B0B0B0"            # smooth monochrome orbiter
-SPIN_BAR_ACTIVE = "#FFFFFF"      # traveling wave crest
-SPIN_BAR_DIM = "#3A3A3A"         # dimmed wave baseline
-
-AURA_DONE = "#333333"            # confirmation flash aura
-DONE_CORE = "#FFFFFF"            # pure white diamond droplet
-DONE_BAR = "#FFFFFF"             # pure white confirmation wave
+EASE_UP = 0.26           # viscous crest rise
+EASE_DOWN = 0.14         # buoyant descent
 
 
-def _rr_points(x1: float, y1: float, x2: float, y2: float, r: float) -> list[float]:
-    """Corner points for a rounded rectangle drawn as a ``smooth=True`` polygon.
+# --- Palette: strictly achromatic, now with real alpha -----------------------
+# (r, g, b, a). The alpha is the whole point: GLASS_FILL at 60% is what lets
+# the desktop through, where the old build used an opaque near-black fill.
+GLASS_FILL = (16, 17, 20, 152)        # smoked glass body
+GLASS_TOP = (255, 255, 255, 30)       # convex dome sheen, fades downward
+GLASS_BOTTOM = (255, 255, 255, 10)    # faint bottom bounce
+RIM_TOP = (255, 255, 255, 110)        # lit upper edge (surface tension)
+RIM_BOTTOM = (255, 255, 255, 38)      # shaded lower edge
+SHADOW = (0, 0, 0, 96)                # contact shadow under the droplet
+STREAK = (255, 255, 255, 64)          # specular streak across the dome
 
-    Duplicating the corner anchors is the classic Tk trick: the spline then
-    hugs the corners instead of rounding the whole shape into a blob.
-    """
-    r = max(0.0, min(r, (x2 - x1) / 2.0, (y2 - y1) / 2.0))
-    return [
-        x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
-        x2, y2 - r, x2, y2, x2 - r, y2, x1 + r, y2,
-        x1, y2, x1, y2 - r, x1, y1 + r, x1, y1,
-    ]
+TEXT_LIVE = (255, 255, 255, 245)
+TEXT_SPIN = (255, 255, 255, 165)
+TEXT_DONE = (255, 255, 255, 245)
+TEXT_PREVIEW = (255, 255, 255, 215)
+
+BEAD_CORE = (255, 255, 255, 250)
+BEAD_HALO = (255, 255, 255, 40)
+BEAD_SPEC = (255, 255, 255, 255)
+BAR_LIVE = (255, 255, 255, 235)
+BAR_DIM = (255, 255, 255, 70)
+
+_STATES = ("listening", "transcribing", "preview", "done")
 
 
-def _capsule_points(cx: float, cy: float, half_h: float, w: float) -> list[float]:
-    """A vertical bar with round caps: a rounded rect of radius = half width."""
-    half_w = w / 2.0
-    half_h = max(half_h, half_w)
-    return _rr_points(cx - half_w, cy - half_h, cx + half_w, cy + half_h, half_w)
-
-
-def _specular_crescent_points(w: float, h: float, r: float) -> list[float]:
-    """Convex top specular highlight polygon mimicking curved liquid glass button glare."""
-    x1, y1, x2, y2 = 3.0, 2.0, w - 3.0, h * 0.40
-    cr = r * 0.85
-    return [
-        x1 + cr, y1,
-        x2 - cr, y1,
-        x2, y1 + cr * 0.4,
-        x2 - cr * 0.5, y2,
-        w / 2.0, y2 + 1.0,
-        x1 + cr * 0.5, y2,
-        x1, y1 + cr * 0.4,
-    ]
+def _lerp_rgba(a, b, t: float):
+    t = max(0.0, min(1.0, t))
+    return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(4))
 
 
 def _work_area(fallback_w: int, fallback_h: int) -> tuple[int, int, int, int]:
@@ -165,16 +145,417 @@ def _virtual_screen(fallback_w: int, fallback_h: int) -> tuple[int, int, int, in
     return (0, 0, int(fallback_w), int(fallback_h))
 
 
-def _no_activate(win) -> None:
+def _load_font(px: int, bold: bool = True):
+    """Best available UI font at `px` pixels, never raising."""
+    from PIL import ImageFont
+
+    names = (
+        ["segoeuisb.ttf", "segoeuib.ttf", "segoeui.ttf"] if bold else ["segoeui.ttf"]
+    ) + ["arial.ttf", "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"]
+    for name in names:
+        try:
+            return ImageFont.truetype(name, px)
+        except Exception:
+            continue
+    try:
+        return ImageFont.load_default(px)
+    except Exception:
+        return ImageFont.load_default()
+
+
+# --- Pure rendering (no Tk, no Windows API: unit-testable) -------------------
+class GlassRenderer:
+    """Draws the bubble into an RGBA image. Stateless between calls."""
+
+    def __init__(self, width: int = BUBBLE_W, height: int = BUBBLE_H,
+                 radius: int = RADIUS, pad: int = PAD, scale: float = 1.0) -> None:
+        self.scale = max(0.5, float(scale))
+        self.width = int(round(width * self.scale))
+        self.height = int(round(height * self.scale))
+        self.radius = int(round(radius * self.scale))
+        self.pad = int(round(pad * self.scale))
+        self.canvas_w = self.width + 2 * self.pad
+        self.canvas_h = self.height + 2 * self.pad
+        self._shell_cache: dict = {}
+        self._font_cache: dict = {}
+
+    # -- helpers ----------------------------------------------------------
+    def font(self, logical_px: float, bold: bool = True):
+        key = (round(logical_px * self.scale), bold)
+        if key not in self._font_cache:
+            self._font_cache[key] = _load_font(max(6, key[0]), bold)
+        return self._font_cache[key]
+
+    def text_width(self, text: str, logical_px: float = 12.5) -> float:
+        """Width of `text` in logical units, for pill auto-sizing."""
+        from PIL import Image, ImageDraw
+
+        font = self.font(logical_px)
+        draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+        try:
+            box = draw.textbbox((0, 0), text, font=font)
+            return (box[2] - box[0]) / self.scale
+        except Exception:
+            return len(text) * logical_px * 0.55
+
+    def _rounded(self, draw, box, radius, fill, outline=None, width=1) -> None:
+        draw.rounded_rectangle(box, radius=radius, fill=fill, outline=outline, width=width)
+
+    def _layer(self, size):
+        """A transparent scratch layer + its draw handle.
+
+        Everything semi-transparent has to be drawn on one of these and then
+        `alpha_composite`d: ImageDraw *writes* RGBA values, alpha included, so
+        drawing a 40-alpha halo straight onto the glass does not glaze it --
+        it punches a hole through it, and the desktop shows through the middle
+        of the bead. That was the ring-shaped artefact around the indicator.
+        """
+        from PIL import Image, ImageDraw
+
+        layer = Image.new("RGBA", size, (0, 0, 0, 0))
+        return layer, ImageDraw.Draw(layer)
+
+    # -- the static glass shell (cached: it only changes with size) --------
+    def shell(self) -> "object":
+        """The pill itself -- shadow, glass body, dome, rim. Supersampled."""
+        key = (self.canvas_w, self.canvas_h)
+        cached = self._shell_cache.get(key)
+        if cached is not None:
+            return cached.copy()
+
+        from PIL import Image, ImageDraw, ImageFilter
+
+        s = SS
+        w, h = self.canvas_w * s, self.canvas_h * s
+        pad, rad = self.pad * s, self.radius * s
+        pill = (pad, pad, pad + self.width * s, pad + self.height * s)
+
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+
+        # 1. Contact shadow: a blurred, slightly offset copy of the pill.
+        #    Drawn on its own layer so the blur cannot bleed into the glass.
+        shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        sdraw = ImageDraw.Draw(shadow)
+        offset = int(round(3 * self.scale * s))
+        self._rounded(
+            sdraw,
+            (pill[0], pill[1] + offset, pill[2], pill[3] + offset),
+            rad, SHADOW,
+        )
+        shadow = shadow.filter(ImageFilter.GaussianBlur(radius=max(1.0, 5.0 * self.scale * s / 2)))
+        img.alpha_composite(shadow)
+
+        # 2. Glass body.
+        body = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        bdraw = ImageDraw.Draw(body)
+        self._rounded(bdraw, pill, rad, GLASS_FILL)
+
+        # 3. Convex dome: a vertical white gradient, clipped to the pill. This
+        #    is what gives the droplet its curvature -- brightest at the top,
+        #    gone by mid-height, with a faint bounce at the very bottom.
+        grad = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        gdraw = ImageDraw.Draw(grad)
+        top, bottom = pill[1], pill[3]
+        span = max(1, bottom - top)
+        for y in range(top, bottom):
+            t = (y - top) / span
+            if t < 0.5:
+                colour = _lerp_rgba(GLASS_TOP, (255, 255, 255, 0), t / 0.5)
+            else:
+                colour = _lerp_rgba((255, 255, 255, 0), GLASS_BOTTOM, (t - 0.5) / 0.5)
+            gdraw.line((pill[0], y, pill[2], y), fill=colour)
+        mask = Image.new("L", (w, h), 0)
+        self._rounded(ImageDraw.Draw(mask), pill, rad, 255)
+        body.alpha_composite(Image.composite(grad, Image.new("RGBA", (w, h), (0, 0, 0, 0)), mask))
+
+        # 4. Specular streak just under the top edge.
+        cx = (pill[0] + pill[2]) / 2
+        streak_w = (pill[2] - pill[0]) * 0.42
+        sy = pill[1] + rad * 0.30
+        streak, sdraw2 = self._layer((w, h))
+        sdraw2.line(
+            (cx - streak_w / 2, sy, cx + streak_w / 2, sy),
+            fill=STREAK, width=max(1, int(round(1.2 * self.scale * s))),
+        )
+        body.alpha_composite(streak)
+
+        # 5. Rim. A real glass edge catches the light along its top and only
+        #    hints at it underneath, so the bright rim is drawn as a full
+        #    outline and then faded out towards the bottom with a mask. (Not
+        #    `arc()`: on a 200x48 box that draws one enormous ellipse, not the
+        #    outline of the pill.)
+        rim_w = max(1, int(round(1.1 * self.scale * s)))
+        rim = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        self._rounded(ImageDraw.Draw(rim), pill, rad, None, outline=RIM_BOTTOM, width=rim_w)
+        body.alpha_composite(rim)
+
+        rim_lit = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        self._rounded(ImageDraw.Draw(rim_lit), pill, rad, None, outline=RIM_TOP, width=rim_w)
+        ramp = Image.new("L", (w, h), 0)
+        rdraw = ImageDraw.Draw(ramp)
+        for y in range(top, bottom):
+            t = (y - top) / span
+            rdraw.line((0, y, w, y), fill=int(255 * max(0.0, 1.0 - (t / 0.62) ** 1.6)))
+        rim_lit.putalpha(Image.composite(rim_lit.getchannel("A"), Image.new("L", (w, h), 0), ramp))
+        body.alpha_composite(rim_lit)
+
+        img.alpha_composite(body)
+        self._shell_cache[key] = img
+        return img.copy()
+
+    # -- one animation frame ----------------------------------------------
+    def frame(self, state: str, label: str, phase: float, level: float,
+              bar_vals: list[float], translate: bool = False) -> "object":
+        """Full RGBA frame at final resolution."""
+        from PIL import Image, ImageDraw
+
+        s = SS
+        img = self.shell()
+        # Every dynamic element lands on this layer, composited once at the
+        # end -- see _layer() for why they cannot be drawn onto the glass.
+        overlay, draw = self._layer(img.size)
+        pad = self.pad * s
+        cy = pad + (self.height * s) / 2.0
+
+        # Bead: the state indicator, a lit droplet of glass.
+        bead_cx = pad + 22 * self.scale * s
+        if state == "transcribing":
+            orbit = 2.0 * self.scale * s
+            bx = bead_cx + orbit * math.cos(phase * 1.8)
+            by = cy + orbit * math.sin(phase * 1.8)
+            core_r = 3.2 * self.scale * s
+            halo_r = core_r + 2.8 * self.scale * s
+        elif state in ("done", "preview"):
+            bx, by = bead_cx, cy
+            core_r = 4.2 * self.scale * s
+            halo_r = 7.0 * self.scale * s
+        else:
+            bx, by = bead_cx, cy
+            breath = 0.5 + 0.5 * math.sin(phase * 1.4)
+            core_r = (3.5 + 1.0 * breath + level * 1.2) * self.scale * s
+            halo_r = core_r + (2.5 + level * 3.0) * self.scale * s
+
+        draw.ellipse((bx - halo_r, by - halo_r, bx + halo_r, by + halo_r), fill=BEAD_HALO)
+        draw.ellipse((bx - core_r, by - core_r, bx + core_r, by + core_r), fill=BEAD_CORE)
+        spec_r = core_r * 0.28
+        sx, sy = bx - core_r * 0.45, by - core_r * 0.45
+        draw.ellipse((sx - spec_r, sy - spec_r, sx + spec_r, sy + spec_r), fill=BEAD_SPEC)
+
+        # Wave bars, right-aligned inside the pill.
+        right = pad + self.width * s
+        total = (BAR_COUNT - 1) * BAR_GAP * self.scale * s
+        base_x = right - 16 * self.scale * s - total
+        head = (phase * 0.75) % (BAR_COUNT + 2) - 1
+        bar_w = BAR_W * self.scale * s
+        for i in range(BAR_COUNT):
+            bx_i = base_x + i * BAR_GAP * self.scale * s
+            half_h = max(bar_w / 2.0, bar_vals[i] * self.scale * s)
+            if state == "transcribing":
+                crest = max(0.0, 1.0 - abs(i - head) / 1.5)
+                colour = _lerp_rgba(BAR_DIM, BAR_LIVE, crest)
+            elif state == "preview":
+                colour = BAR_DIM
+            else:
+                colour = BAR_LIVE
+            self._rounded(
+                draw,
+                (bx_i - bar_w / 2, cy - half_h, bx_i + bar_w / 2, cy + half_h),
+                bar_w / 2, colour,
+            )
+
+        # Label, between the bead and the bars.
+        if label:
+            colour = {
+                "listening": TEXT_LIVE, "transcribing": TEXT_SPIN,
+                "preview": TEXT_PREVIEW, "done": TEXT_DONE,
+            }.get(state, TEXT_LIVE)
+            font = self.font(12.5)
+            text_x = pad + 38 * self.scale * s
+            text_right = base_x - 8 * self.scale * s
+            draw.text((text_x, cy), self._fit(label, font, text_right - text_x),
+                      font=font, fill=colour, anchor="lm")
+
+        # Translation badge: monochrome by design -- the palette is
+        # achromatic, so the mode is signalled by a mark, never by a hue.
+        if translate:
+            font = self.font(8.0)
+            draw.text((right - 8 * self.scale * s, pad + 9 * self.scale * s),
+                      "FR→EN", font=font, fill=(255, 255, 255, 150), anchor="rm")
+
+        img.alpha_composite(overlay)
+        return img.resize((self.canvas_w, self.canvas_h), Image.LANCZOS)
+
+    def _fit(self, text: str, font, max_px: float) -> str:
+        """Ellipsize from the *left*: for live text the newest words matter."""
+        from PIL import Image, ImageDraw
+
+        draw = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+
+        def width(value: str) -> float:
+            try:
+                box = draw.textbbox((0, 0), value, font=font)
+                return box[2] - box[0]
+            except Exception:
+                return len(value) * 6.0
+
+        if max_px <= 0 or width(text) <= max_px:
+            return text
+        trimmed = text
+        while trimmed and width("…" + trimmed) > max_px:
+            trimmed = trimmed[1:]
+        return "…" + trimmed if trimmed else ""
+
+
+# --- Windows layered-window blitting ----------------------------------------
+class _LayeredWindow:
+    """Pushes an RGBA image onto an HWND with per-pixel alpha."""
+
+    def __init__(self, hwnd: int) -> None:
+        import ctypes
+        from ctypes import wintypes
+
+        self.hwnd = hwnd
+        self._ctypes = ctypes
+        self._wintypes = wintypes
+        self.user32 = ctypes.windll.user32          # type: ignore[attr-defined]
+        self.gdi32 = ctypes.windll.gdi32            # type: ignore[attr-defined]
+        self._dib = None
+        self._dib_size = (0, 0)
+        self._bits = None
+        self._memdc = None
+
+        GWL_EXSTYLE = -20
+        WS_EX_LAYERED = 0x00080000
+        get_l = getattr(self.user32, "GetWindowLongPtrW", self.user32.GetWindowLongW)
+        set_l = getattr(self.user32, "SetWindowLongPtrW", self.user32.SetWindowLongW)
+        get_l.argtypes = [wintypes.HWND, ctypes.c_int]
+        get_l.restype = ctypes.c_void_p
+        set_l.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+        set_l.restype = ctypes.c_void_p
+        style = get_l(wintypes.HWND(hwnd), GWL_EXSTYLE) or 0
+        set_l(wintypes.HWND(hwnd), GWL_EXSTYLE, ctypes.c_void_p(int(style) | WS_EX_LAYERED))
+
+    def _ensure_dib(self, width: int, height: int):
+        ctypes = self._ctypes
+        if self._dib is not None and self._dib_size == (width, height):
+            return
+        self._release_dib()
+
+        class BITMAPINFOHEADER(ctypes.Structure):
+            _fields_ = [
+                ("biSize", ctypes.c_uint32), ("biWidth", ctypes.c_int32),
+                ("biHeight", ctypes.c_int32), ("biPlanes", ctypes.c_uint16),
+                ("biBitCount", ctypes.c_uint16), ("biCompression", ctypes.c_uint32),
+                ("biSizeImage", ctypes.c_uint32), ("biXPelsPerMeter", ctypes.c_int32),
+                ("biYPelsPerMeter", ctypes.c_int32), ("biClrUsed", ctypes.c_uint32),
+                ("biClrImportant", ctypes.c_uint32),
+            ]
+
+        header = BITMAPINFOHEADER()
+        header.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        header.biWidth = width
+        # Negative height = top-down DIB, matching Pillow's row order. With a
+        # positive height the bubble comes out mirrored vertically.
+        header.biHeight = -height
+        header.biPlanes = 1
+        header.biBitCount = 32
+        header.biCompression = 0  # BI_RGB
+
+        bits = ctypes.c_void_p()
+        screen_dc = self.user32.GetDC(None)
+        try:
+            self._memdc = self.gdi32.CreateCompatibleDC(screen_dc)
+            self._dib = self.gdi32.CreateDIBSection(
+                screen_dc, ctypes.byref(header), 0, ctypes.byref(bits), None, 0
+            )
+        finally:
+            self.user32.ReleaseDC(None, screen_dc)
+        if not self._dib:
+            raise RuntimeError("CreateDIBSection failed")
+        self.gdi32.SelectObject(self._memdc, self._dib)
+        self._bits = bits
+        self._dib_size = (width, height)
+
+    def _release_dib(self) -> None:
+        try:
+            if self._dib:
+                self.gdi32.DeleteObject(self._dib)
+            if self._memdc:
+                self.gdi32.DeleteDC(self._memdc)
+        except Exception:
+            pass
+        self._dib = None
+        self._memdc = None
+        self._bits = None
+        self._dib_size = (0, 0)
+
+    def blit(self, image, x: int, y: int, alpha: float = 1.0) -> None:
+        """Show `image` (RGBA) at screen position (x, y)."""
+        import numpy as np
+
+        ctypes = self._ctypes
+        wintypes = self._wintypes
+        width, height = image.size
+        self._ensure_dib(width, height)
+
+        # UpdateLayeredWindow wants premultiplied BGRA. Skipping the
+        # premultiplication is what produces the classic milky halo around
+        # translucent edges.
+        arr = np.asarray(image.convert("RGBA"), dtype=np.uint8)
+        a = arr[:, :, 3].astype(np.uint16)
+        rgb = (arr[:, :, :3].astype(np.uint16) * a[:, :, None] // 255).astype(np.uint8)
+        bgra = np.dstack((rgb[:, :, ::-1], arr[:, :, 3])).copy(order="C")
+        ctypes.memmove(self._bits, bgra.ctypes.data, bgra.nbytes)
+
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+        class SIZE(ctypes.Structure):
+            _fields_ = [("cx", ctypes.c_long), ("cy", ctypes.c_long)]
+
+        class BLENDFUNCTION(ctypes.Structure):
+            _fields_ = [("BlendOp", ctypes.c_byte), ("BlendFlags", ctypes.c_byte),
+                        ("SourceConstantAlpha", ctypes.c_byte), ("AlphaFormat", ctypes.c_byte)]
+
+        blend = BLENDFUNCTION(0, 0, max(0, min(255, int(round(alpha * 255)))), 1)  # AC_SRC_ALPHA
+        src = POINT(0, 0)
+        dst = POINT(int(x), int(y))
+        size = SIZE(width, height)
+
+        screen_dc = self.user32.GetDC(None)
+        try:
+            ok = self.user32.UpdateLayeredWindow(
+                wintypes.HWND(self.hwnd), screen_dc, ctypes.byref(dst), ctypes.byref(size),
+                self._memdc, ctypes.byref(src), 0, ctypes.byref(blend), 2,  # ULW_ALPHA
+            )
+            if not ok:
+                raise ctypes.WinError(ctypes.get_last_error())
+        finally:
+            self.user32.ReleaseDC(None, screen_dc)
+
+    def close(self) -> None:
+        self._release_dib()
+
+
+def _window_handle(win) -> int:
+    """Top-level HWND of a Tk window."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32  # type: ignore[attr-defined]
+    user32.GetAncestor.argtypes = [wintypes.HWND, ctypes.c_uint]
+    user32.GetAncestor.restype = wintypes.HWND
+    raw = win.winfo_id()
+    return int(user32.GetAncestor(wintypes.HWND(raw), 2) or raw)  # GA_ROOT
+
+
+def _no_activate(hwnd: int) -> None:
     """Ask Windows never to activate this window (the paste must land elsewhere)."""
     try:
         import ctypes
         from ctypes import wintypes
 
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-        user32.GetParent.argtypes = [wintypes.HWND]
-        user32.GetParent.restype = wintypes.HWND
-        hwnd = user32.GetParent(wintypes.HWND(win.winfo_id())) or win.winfo_id()
         GWL_EXSTYLE = -20
         WS_EX_NOACTIVATE = 0x08000000
         WS_EX_TOOLWINDOW = 0x00000080
@@ -192,7 +573,7 @@ def _no_activate(win) -> None:
 
 
 class FloatingBubble:
-    """A translucent liquid glass floating pill showing dictation state.
+    """A translucent glass pill showing dictation state.
 
     Public methods are thread-safe and never raise.
     """
@@ -208,30 +589,28 @@ class FloatingBubble:
         self._lock = threading.RLock()
         self._ready = threading.Event()
         self._thread: threading.Thread | None = None
-        self._dead = False           # tkinter unavailable / shut down -> no-op
+        self._dead = False
         self._stopping = False
-        self._tk_ident: int | None = None
 
         # Tk-thread-only state.
         self._tk = None
         self._root = None
         self._win = None
-        self._canvas = None
-
-        # Graphical elements
-        self._dot_halo = None
-        self._dot = None
-        self._dot_spec = None
-        self._label = None
-        self._bars: list[tuple[int, float]] = []
-        self._bar_vals: list[float] = [BAR_W / 2.0] * BAR_COUNT
+        self._layered: _LayeredWindow | None = None
+        self._renderer: GlassRenderer | None = None
+        self._scale = 1.0
 
         self._state = "hidden"
+        self._label = ""
+        self._translate = False
         self._visible = False
         self._phase = 0.0
         self._anim_id = None
         self._hide_id = None
-        self._alpha = 0.96
+        self._alpha = 1.0
+        self._bar_vals: list[float] = [BAR_W / 2.0] * BAR_COUNT
+        self._xy = (0, 0)
+        self._pill_w = BUBBLE_W
         self._drag: tuple[int, int] | None = None
         self._drag_moved = False
 
@@ -247,9 +626,10 @@ class FloatingBubble:
                 return self._ready.is_set() and not self._dead
             try:
                 import tkinter  # noqa: F401
+                from PIL import Image  # noqa: F401
             except Exception as exc:
                 self._dead = True
-                debug_log(f"bubble: tkinter unavailable ({exc!r}); bubble disabled")
+                debug_log(f"bubble: tkinter/Pillow unavailable ({exc!r}); bubble disabled")
                 return False
             self._thread = threading.Thread(
                 target=self._tk_main, name="plume-bubble", daemon=True
@@ -276,14 +656,13 @@ class FloatingBubble:
 
             root = tk.Tk()
             root.withdraw()
-            # Crisp text rendering at native DPI
-            try:
-                root.tk.call("tk", "scaling", root.winfo_fpixels("1i") / 72.0)
-            except Exception:
-                pass
             self._tk = tk
             self._root = root
-            self._tk_ident = threading.get_ident()
+            try:
+                self._scale = max(1.0, float(root.winfo_fpixels("1i")) / 96.0)
+            except Exception:
+                self._scale = 1.0
+            self._renderer = GlassRenderer(scale=self._scale)
         except Exception as exc:
             with self._lock:
                 self._dead = True
@@ -326,6 +705,13 @@ class FloatingBubble:
     def set_state(self, state: str, text: str = "") -> None:
         self._post(lambda: self._do_set_state(state, text))
 
+    def set_text(self, text: str) -> None:
+        """Update the label only -- used by the live transcript preview."""
+        self._post(lambda: self._do_set_text(text))
+
+    def set_translate(self, on: bool) -> None:
+        self._post(lambda: self._do_set_translate(bool(on)))
+
     def set_level(self, level: float) -> None:
         try:
             self._level = max(0.0, min(1.0, float(level)))
@@ -352,7 +738,6 @@ class FloatingBubble:
 
     # --- Tk thread: construction --------------------------------------------
     def _ensure_win(self) -> bool:
-        """Create the window once. Idempotent -- show() twice must not stack."""
         if self._win is not None:
             return True
         tk = self._tk
@@ -363,149 +748,73 @@ class FloatingBubble:
             win.attributes("-topmost", True)
         except Exception:
             pass
+        # No -alpha and no -transparentcolor: both go through
+        # SetLayeredWindowAttributes, which is mutually exclusive with the
+        # UpdateLayeredWindow path used for per-pixel alpha.
+        win.geometry(f"{self._renderer.canvas_w}x{self._renderer.canvas_h}+0+0")
+        win.update_idletasks()
+
         try:
-            win.attributes("-alpha", self._alpha)
-        except Exception:
-            pass
-        canvas_bg = GLASS_BASE
-        try:
-            win.configure(bg=CHROMA)
-            win.attributes("-transparentcolor", CHROMA)
-            canvas_bg = CHROMA
-        except Exception:
-            try:
-                win.configure(bg=GLASS_BASE)
-            except Exception:
-                pass
-        win.withdraw()
+            hwnd = _window_handle(win)
+            _no_activate(hwnd)
+            self._layered = _LayeredWindow(hwnd)
+        except Exception as exc:
+            debug_log(f"bubble: layered window unavailable ({exc!r}); bubble disabled")
+            self._dead = True
+            return False
 
-        canvas = tk.Canvas(win, width=BUBBLE_W, height=BUBBLE_H,
-                           highlightthickness=0, bd=0, bg=canvas_bg,
-                           cursor="hand2")
-        canvas.pack()
-        self._canvas = canvas
-        self._build(canvas)
-
-        canvas.bind("<Button-1>", self._on_press)
-        canvas.bind("<B1-Motion>", self._on_drag)
-        canvas.bind("<ButtonRelease-1>", self._on_release)
-
-        _no_activate(win)
+        win.bind("<Button-1>", self._on_press)
+        win.bind("<B1-Motion>", self._on_drag)
+        win.bind("<ButtonRelease-1>", self._on_release)
         return True
 
-    def _build(self, canvas) -> None:
-        """Construct multi-layer liquid glass / water drop optics in pure monochrome."""
-        cy = BUBBLE_H / 2.0
-        cx_mid = BUBBLE_W / 2.0
-
-        # 1. Ambient Contact Shadow beneath the droplet
-        canvas.create_polygon(
-            _rr_points(1.5, 4, BUBBLE_W - 1.5, BUBBLE_H, RADIUS),
-            smooth=True, fill=SHADOW_DEPTH, outline="",
-        )
-
-        # 2. Smoked Liquid Glass Body (Obsidian Dark Base)
-        canvas.create_polygon(
-            _rr_points(1.5, 1.5, BUBBLE_W - 1.5, BUBBLE_H - 2, RADIUS),
-            smooth=True, fill=GLASS_BASE, outline="",
-        )
-
-        # 3. Inner Liquid Volume / Refracted Depth Core
-        canvas.create_polygon(
-            _rr_points(3, 3, BUBBLE_W - 3, BUBBLE_H - 3.5, RADIUS - 1.5),
-            smooth=True, fill=GLASS_INNER, outline="",
-        )
-
-        # 4. Top Convex Specular Glare Dome (Signature Liquid Glass Button Crescent)
-        canvas.create_polygon(
-            _specular_crescent_points(BUBBLE_W, BUBBLE_H, RADIUS),
-            smooth=True, fill=SPECULAR_CRESCENT, outline="",
-        )
-
-        # 5. Specular Reflection Lines along the Upper Arc (Glass Sheen)
-        canvas.create_line(
-            RADIUS * 0.7, 2.5, BUBBLE_W - RADIUS * 0.7, 2.5,
-            fill=SPECULAR_ARC, width=1.0, capstyle="round",
-        )
-        canvas.create_line(
-            cx_mid - 32, 2.5, cx_mid + 32, 2.5,
-            fill=SPECULAR_STREAK, width=0.8, capstyle="round",
-        )
-        canvas.create_line(
-            cx_mid - 14, 2.5, cx_mid + 14, 2.5,
-            fill=SPECULAR_APEX, width=0.6, capstyle="round",
-        )
-
-        # 6. Bottom Caustic Refraction (Internal Lens Reflection)
-        canvas.create_line(
-            RADIUS * 0.9, BUBBLE_H - 3.5, BUBBLE_W - RADIUS * 0.9, BUBBLE_H - 3.5,
-            fill=CAUSTIC_LIP, width=0.8, capstyle="round",
-        )
-
-        # 7. Meniscus Surface Tension Rim (Crisp Glass Edge)
-        canvas.create_polygon(
-            _rr_points(1.5, 1.5, BUBBLE_W - 1.5, BUBBLE_H - 2, RADIUS),
-            smooth=True, fill="", outline=MENISCUS_BORDER, width=1,
-        )
-
-        # 8. Liquid Status Droplet Bead (Glow Aura + Pure White Bead + 3D Specular Highlight)
-        dot_cx = 20.0
-        self._dot_halo = canvas.create_oval(
-            dot_cx - 7, cy - 7, dot_cx + 7, cy + 7, fill=AURA_LIVE, outline="")
-        self._dot = canvas.create_oval(
-            dot_cx - 4, cy - 4, dot_cx + 4, cy + 4, fill=LIVE_CORE, outline="")
-        self._dot_spec = canvas.create_oval(
-            dot_cx - 2.5, cy - 3, dot_cx - 0.5, cy - 1, fill="#FFFFFF", outline="")
-
-        # 9. Modern High-Contrast Typography
-        self._label = canvas.create_text(
-            36, cy, anchor="w", fill=TEXT_LIVE,
-            font=(FONT_UI, 9, "bold"), text="",
-        )
-
-        # 10. Voice-Reactive Fluid Wave Ripples (Droplet Equalizer)
-        self._bars = []
-        total = (BAR_COUNT - 1) * BAR_GAP
-        base_x = BUBBLE_W - 16 - total
-        for i in range(BAR_COUNT):
-            cx = base_x + i * BAR_GAP
-            item = canvas.create_polygon(
-                _capsule_points(cx, cy, BAR_W / 2.0, BAR_W),
-                smooth=True, fill=LIVE_BAR, outline="",
-            )
-            self._bars.append((item, cx))
-
     # --- Tk thread: placement ------------------------------------------------
+    def _resize_for(self, label: str) -> None:
+        """Grow the pill so `label` fits, within PREVIEW_W_MAX."""
+        renderer = self._renderer
+        if renderer is None:
+            return
+        needed = 38 + renderer.text_width(label) + 10 + (BAR_COUNT - 1) * BAR_GAP + 16 + 10
+        target = int(max(BUBBLE_W, min(PREVIEW_W_MAX, needed)))
+        if target == self._pill_w:
+            return
+        self._pill_w = target
+        self._renderer = GlassRenderer(width=target, scale=self._scale)
+        # Keep the renderer's font/shell caches warm across resizes only when
+        # the size is unchanged; a new width needs a new shell anyway.
+        if self._win is not None:
+            try:
+                self._win.geometry(f"{self._renderer.canvas_w}x{self._renderer.canvas_h}")
+            except Exception:
+                pass
+
     def _place(self) -> None:
-        win = self._win
-        try:
-            win.update_idletasks()
-        except Exception:
-            pass
+        renderer = self._renderer
         sw = int(self._root.winfo_screenwidth())
         sh = int(self._root.winfo_screenheight())
         left, top, right, bottom = _work_area(sw, sh)
+        cw, ch = renderer.canvas_w, renderer.canvas_h
 
         if self.pos is not None:
-            x, y = int(self.pos[0]), int(self.pos[1])
+            # Stored position is the pill's top-left; the canvas is padded.
+            x = int(self.pos[0]) - renderer.pad
+            y = int(self.pos[1]) - renderer.pad
         else:
-            x = left + (right - left - BUBBLE_W) // 2
-            y = top + MARGIN if self.position == "top" else bottom - BUBBLE_H - MARGIN
+            x = left + (right - left - cw) // 2
+            margin = int(MARGIN * self._scale)
+            y = top + margin if self.position == "top" else bottom - ch - margin
 
         vleft, vtop, vright, vbottom = _virtual_screen(sw, sh)
-        x = max(vleft, min(x, vright - BUBBLE_W))
-        y = max(vtop, min(y, vbottom - BUBBLE_H))
-        win.geometry(f"{BUBBLE_W}x{BUBBLE_H}+{x}+{y}")
+        x = max(vleft, min(x, vright - cw))
+        y = max(vtop, min(y, vbottom - ch))
+        self._xy = (x, y)
 
     # --- Tk thread: commands -------------------------------------------------
     def _do_show(self, state: str, text: str) -> None:
-        self._ensure_win()
+        if not self._ensure_win():
+            return
         self._cancel_hide()
-        self._alpha = 0.96
-        try:
-            self._win.attributes("-alpha", self._alpha)
-        except Exception:
-            pass
+        self._alpha = 1.0
         self._do_set_state(state, text)
         self._place()
         try:
@@ -519,36 +828,23 @@ class FloatingBubble:
             self._tick()
 
     def _do_set_state(self, state: str, text: str) -> None:
-        if state not in ("listening", "transcribing", "done"):
+        if state not in _STATES:
             state = "listening"
         self._state = state
-        if self._canvas is None:
-            return
-
-        if state == "listening":
-            self._canvas.itemconfigure(self._dot_halo, fill=AURA_LIVE)
-            self._canvas.itemconfigure(self._dot, fill=LIVE_CORE)
-            self._canvas.itemconfigure(self._dot_spec, fill="#FFFFFF")
-            self._canvas.itemconfigure(self._label, fill=TEXT_LIVE)
-            for item, _cx in self._bars:
-                self._canvas.itemconfigure(item, fill=LIVE_BAR)
-        elif state == "transcribing":
-            self._canvas.itemconfigure(self._dot_halo, fill=AURA_SPIN)
-            self._canvas.itemconfigure(self._dot, fill=SPIN_CORE)
-            self._canvas.itemconfigure(self._dot_spec, fill="#FFFFFF")
-            self._canvas.itemconfigure(self._label, fill=TEXT_SPIN)
-            for item, _cx in self._bars:
-                self._canvas.itemconfigure(item, fill=SPIN_BAR_DIM)
-        elif state == "done":
-            self._canvas.itemconfigure(self._dot_halo, fill=AURA_DONE)
-            self._canvas.itemconfigure(self._dot, fill=DONE_CORE)
-            self._canvas.itemconfigure(self._dot_spec, fill="#FFFFFF")
-            self._canvas.itemconfigure(self._label, fill=TEXT_DONE)
-            for item, _cx in self._bars:
-                self._canvas.itemconfigure(item, fill=DONE_BAR)
-
         if text:
-            self._canvas.itemconfigure(self._label, text=text)
+            self._do_set_text(text)
+
+    def _do_set_text(self, text: str) -> None:
+        text = str(text or "")
+        if text == self._label:
+            return
+        self._label = text
+        self._resize_for(text)
+        if self._visible:
+            self._place()
+
+    def _do_set_translate(self, on: bool) -> None:
+        self._translate = on
 
     def _do_flash_done(self, text: str, ms: int) -> None:
         if self._win is None:
@@ -558,9 +854,8 @@ class FloatingBubble:
             self._do_set_state("done", text or "Collé")
             if not self._visible:
                 self._place()
-                self._alpha = 0.96
+                self._alpha = 1.0
                 try:
-                    self._win.attributes("-alpha", self._alpha)
                     self._win.deiconify()
                     self._win.lift()
                 except Exception:
@@ -577,6 +872,7 @@ class FloatingBubble:
         self._cancel_hide()
         self._visible = False
         self._state = "hidden"
+        self._label = ""
         if self._anim_id is not None:
             try:
                 self._root.after_cancel(self._anim_id)
@@ -592,6 +888,12 @@ class FloatingBubble:
     def _do_shutdown(self) -> None:
         self._stopping = True
         self._do_hide()
+        if self._layered is not None:
+            try:
+                self._layered.close()
+            except Exception:
+                pass
+            self._layered = None
         for obj in (self._win, self._root):
             try:
                 if obj is not None:
@@ -599,7 +901,6 @@ class FloatingBubble:
             except Exception:
                 pass
         self._win = None
-        self._canvas = None
         try:
             self._root.quit()
         except Exception:
@@ -625,10 +926,9 @@ class FloatingBubble:
         if self._drag is None or self._win is None:
             return
         try:
-            x = event.x_root - self._drag[0]
-            y = event.y_root - self._drag[1]
-            self._win.geometry(f"+{int(x)}+{int(y)}")
+            self._xy = (event.x_root - self._drag[0], event.y_root - self._drag[1])
             self._drag_moved = True
+            self._render()
         except Exception:
             pass
 
@@ -636,13 +936,12 @@ class FloatingBubble:
         moved = self._drag_moved
         self._drag = None
         self._drag_moved = False
-        if not moved or self._win is None:
+        if not moved or self._renderer is None:
             return
-        try:
-            x = int(self._win.winfo_x())
-            y = int(self._win.winfo_y())
-        except Exception:
-            return
+        # Report the *pill* corner, not the padded canvas corner, so a stored
+        # position means the same thing whatever the shadow padding is.
+        x = int(self._xy[0]) + self._renderer.pad
+        y = int(self._xy[1]) + self._renderer.pad
         self.pos = (x, y)
         if self.on_move is not None:
             try:
@@ -650,7 +949,7 @@ class FloatingBubble:
             except Exception as exc:
                 debug_log(f"bubble: on_move callback failed ({exc!r})")
 
-    # --- Tk thread: animation & 120Hz fluid dynamics -------------------------
+    # --- Tk thread: animation ------------------------------------------------
     def _targets(self) -> list[float]:
         floor = BAR_W / 2.0
         if self._state == "listening":
@@ -658,23 +957,15 @@ class FloatingBubble:
             out = []
             center_idx = (BAR_COUNT - 1) / 2.0
             for i in range(BAR_COUNT):
-                # Ripple dispersion across fluid surface
                 ripple_phase = self._phase * 1.3 + (i - center_idx) * 0.55
                 wave_shimmer = 0.50 + 0.50 * math.sin(ripple_phase)
-
-                # Ambient living liquid breath (calm water surface)
                 idle_breath = 1.1 + 0.8 * (0.5 + 0.5 * math.sin(self._phase * 0.7 + i * 0.4))
-
-                # Fluid acoustic crest (parabolic center concentration)
                 dist = abs(i - center_idx) / center_idx
                 center_weight = 1.0 - 0.28 * (dist ** 2)
-                voice_surge = level * BAR_MAX * wave_shimmer * center_weight
-
-                out.append(floor + idle_breath + voice_surge)
+                out.append(floor + idle_breath + level * BAR_MAX * wave_shimmer * center_weight)
             return out
 
         if self._state == "transcribing":
-            # Silky continuous traveling wave sweep
             out = []
             head = (self._phase * 0.75) % (BAR_COUNT + 2) - 1
             for i in range(BAR_COUNT):
@@ -685,66 +976,32 @@ class FloatingBubble:
         if self._state == "done":
             return [floor + 2.2] * BAR_COUNT
 
+        if self._state == "preview":
+            return [floor + 0.8] * BAR_COUNT
+
         return [floor] * BAR_COUNT
+
+    def _render(self) -> None:
+        if self._layered is None or self._renderer is None:
+            return
+        image = self._renderer.frame(
+            self._state, self._label, self._phase, self._level,
+            self._bar_vals, self._translate,
+        )
+        self._layered.blit(image, self._xy[0], self._xy[1], self._alpha)
 
     def _tick(self) -> None:
         self._anim_id = None
-        if not self._visible or self._canvas is None:
+        if not self._visible:
             return
-        # Smooth phase advance tailored for high frame rates
-        self._phase += 0.12
-        cy = BUBBLE_H / 2.0
+        self._phase += 0.12 * (FRAME_MS / 12.0)
 
         try:
-            dot_cx = 20.0
-            # 1. Animate the Monochrome Liquid Droplet Bead
-            if self._state == "transcribing":
-                # Silky liquid orbit
-                r = 2.0
-                ox = dot_cx + r * math.cos(self._phase * 1.8)
-                oy = cy + r * math.sin(self._phase * 1.8)
-                pr = 3.2
-                halo_r = pr + 2.8
-            elif self._state == "done":
-                # Pure white diamond confirmation
-                pr = 4.5
-                halo_r = 7.0
-                ox, oy = dot_cx, cy
-            else:
-                # Listening: breathing pure white droplet + reactive halo
-                pr = 3.5 + 1.0 * (0.5 + 0.5 * math.sin(self._phase * 1.4)) + self._level * 1.2
-                halo_r = pr + 2.5 + self._level * 3.0
-                ox, oy = dot_cx, cy
-
-            # Update Droplet + Halo + Specular Highlight Coords
-            self._canvas.coords(self._dot_halo, ox - halo_r, oy - halo_r, ox + halo_r, oy + halo_r)
-            self._canvas.coords(self._dot, ox - pr, oy - pr, ox + pr, oy + pr)
-            spec_r = pr * 0.28
-            self._canvas.coords(
-                self._dot_spec,
-                ox - pr * 0.50 - spec_r, oy - pr * 0.50 - spec_r,
-                ox - pr * 0.50 + spec_r, oy - pr * 0.50 + spec_r,
-            )
-
-            # 2. Animate Viscous Fluid Wave Ripples (Droplet Equalizer)
             targets = self._targets()
-            head = (self._phase * 0.75) % (BAR_COUNT + 2) - 1
-            for i, (item, cx) in enumerate(self._bars):
-                target = targets[i]
-                # Viscous fluid easing: fast crest rise, buoyant fluid descent
+            for i, target in enumerate(targets):
                 ease = EASE_UP if target > self._bar_vals[i] else EASE_DOWN
                 self._bar_vals[i] += (target - self._bar_vals[i]) * ease
-                self._canvas.coords(
-                    item, *_capsule_points(cx, cy, self._bar_vals[i], BAR_W)
-                )
-
-                # In transcribing mode, highlight the wave crest dynamically in pure monochrome
-                if self._state == "transcribing":
-                    d = abs(i - head)
-                    crest_t = max(0.0, 1.0 - d / 1.5)
-                    bar_color = mix(SPIN_BAR_DIM, SPIN_BAR_ACTIVE, crest_t)
-                    self._canvas.itemconfigure(item, fill=bar_color)
-
+            self._render()
         except Exception as exc:
             debug_log(f"bubble: animation stopped ({exc!r})")
             return
@@ -761,7 +1018,7 @@ class FloatingBubble:
             self._do_hide()
             return
         try:
-            self._win.attributes("-alpha", max(0.0, self._alpha))
+            self._render()
         except Exception:
             self._do_hide()
             return

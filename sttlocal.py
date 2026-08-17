@@ -112,7 +112,7 @@ def write_frames_to_wav(frames: list[np.ndarray], output_dir: Path, sample_rate:
 class DictationEngine:
     """Thin adapter over a pluggable :class:`~backends.Transcriber`.
 
-    Kept for backward compatibility with ``dictate.py`` / ``tray_app.py``: the
+    Kept for backward compatibility with ``dictate.py``: the
     ``transcribe`` method still returns the legacy ``(text, elapsed, language,
     probability)`` tuple. Pick the engine with ``backend`` ("faster-whisper" or
     "openvino").
@@ -149,16 +149,20 @@ class DictationEngine:
         self._transcriber.load()
 
     def transcribe_full(
-        self, path: Path, hotwords: str | None = None, initial_prompt: str | None = None
+        self, path: Path, hotwords: str | None = None, initial_prompt: str | None = None,
+        task: str = "transcribe",
     ) -> TranscriptionResult:
         self.load()
         assert self._transcriber is not None
-        return self._transcriber.transcribe(path, hotwords=hotwords, initial_prompt=initial_prompt)
+        return self._transcriber.transcribe(
+            path, hotwords=hotwords, initial_prompt=initial_prompt, task=task
+        )
 
     def transcribe(
-        self, path: Path, hotwords: str | None = None, initial_prompt: str | None = None
+        self, path: Path, hotwords: str | None = None, initial_prompt: str | None = None,
+        task: str = "transcribe",
     ) -> tuple[str, float, str, float]:
-        result = self.transcribe_full(path, hotwords, initial_prompt)
+        result = self.transcribe_full(path, hotwords, initial_prompt, task)
         return result.text, result.elapsed, result.language, result.language_probability
 
 
@@ -168,31 +172,110 @@ FILLER_RE = re.compile(
 )
 SPACE_RE = re.compile(r"\s+")
 REPEATED_WORD_RE = re.compile(r"\b(\w{2,})(?:\s+\1\b){1,3}", flags=re.IGNORECASE)
-COMMAND_REPLACEMENTS = (
-    (re.compile(r"\s*\b(?:nouveau paragraphe|nouveau paragraph|paragraphe suivant|double saut de ligne)\b\s*", re.IGNORECASE), "\n\n"),
-    (re.compile(r"\s*\b(?:nouvelle ligne|nouvel ligne|a la ligne|à la ligne|aller a la ligne|aller à la ligne|retour a la ligne|retour à la ligne|retour ligne|saut de ligne|ligne suivante)\b\s*", re.IGNORECASE), "\n"),
-    (re.compile(r"\s*\bpoint d'interrogation\b\s*", re.IGNORECASE), "? "),
-    (re.compile(r"\s*\bpoint d'exclamation\b\s*", re.IGNORECASE), "! "),
-    (re.compile(r"\s*\bdeux points\b\s*", re.IGNORECASE), ": "),
-    (re.compile(r"\s*\bpoint virgule\b\s*", re.IGNORECASE), "; "),
-    (re.compile(r"\s*\bvirgule\b\s*", re.IGNORECASE), ", "),
-    (re.compile(r"\s*\bpoint\b\s*", re.IGNORECASE), ". "),
+# Spoken commands, as (spoken forms, action). Order matters: the alternation
+# is tried in order, so every phrase must come before any phrase it starts
+# with -- "points de suspension" and "point virgule" before "point", "deux
+# points" before "points". Getting this wrong turns "points de suspension"
+# into ". s de suspension", which is exactly the kind of bug that makes people
+# stop trusting dictation.
+_COMMANDS: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    # --- structure ---------------------------------------------------------
+    (("nouveau paragraphe", "nouveau paragraph", "paragraphe suivant",
+      "double saut de ligne", "saut de ligne"), "insert", "\n\n"),
+    (("nouvelle ligne", "nouvel ligne", "a la ligne", "à la ligne",
+      "aller a la ligne", "aller à la ligne", "retour a la ligne",
+      "retour à la ligne", "retour ligne", "ligne suivante"), "insert", "\n"),
+    (("nouvelle puce", "puce", "tiret"), "bullet", "\n- "),
+    # --- edition (must be tried before the punctuation that shares a prefix)
+    (("tout effacer", "efface tout", "annuler", "annule"), "clear", ""),
+    (("effacer le dernier mot", "efface le dernier mot", "effacer le mot",
+      "efface le mot", "effacer", "efface"), "del_word", ""),
+    # --- punctuation -------------------------------------------------------
+    (("points de suspension", "point de suspension"), "insert", "… "),
+    (("point d'interrogation", "point dinterrogation"), "insert", "? "),
+    (("point d'exclamation", "point dexclamation"), "insert", "! "),
+    (("point virgule", "point-virgule"), "insert", "; "),
+    (("deux points", "deux-points"), "insert", ": "),
+    (("ouvrez les guillemets", "ouvrir les guillemets", "ouvre les guillemets",
+      "ouvrez la guillemet"), "insert", " « "),
+    (("fermez les guillemets", "fermer les guillemets", "ferme les guillemets",
+      "fermez la guillemet"), "insert", " » "),
+    (("ouvrez la parenthese", "ouvrez la parenthèse", "ouvrir la parenthese",
+      "ouvrir la parenthèse", "ouvrez les parentheses", "ouvrez les parenthèses",
+      "ouvre la parenthese", "ouvre la parenthèse"), "insert", " ("),
+    (("fermez la parenthese", "fermez la parenthèse", "fermer la parenthese",
+      "fermer la parenthèse", "fermez les parentheses", "fermez les parenthèses",
+      "ferme la parenthese", "ferme la parenthèse"), "insert", ") "),
+    (("virgule",), "insert", ", "),
+    (("point",), "insert", ". "),
 )
+
+_COMMAND_RE = re.compile(
+    r"\s*\b(" + "|".join(
+        re.escape(phrase) for phrases, _kind, _value in _COMMANDS for phrase in phrases
+    ) + r")\b[\s,]*",
+    re.IGNORECASE,
+)
+_ACTIONS = {
+    phrase.lower(): (kind, value)
+    for phrases, kind, value in _COMMANDS
+    for phrase in phrases
+}
+_SENTENCE_END_RE = re.compile(r"([.!?…]\s+|\n\n|\n- |^)([a-zà-öø-ÿ])")
+
+
+def _delete_last_word(text: str) -> str:
+    """Drop the last word, and any punctuation that trailed it."""
+    stripped = text.rstrip()
+    stripped = re.sub(r"[\s,;:.!?…»)\"']+$", "", stripped)
+    cut = re.search(r"[\s\n]([^\s\n]+)$", stripped)
+    if cut is None:
+        return ""
+    return stripped[: cut.start()] + " "
 
 
 def apply_spoken_commands(text: str) -> str:
-    """Turn common spoken punctuation/layout commands into text.
+    """Turn spoken punctuation, layout and edit commands into real text.
 
-    This deliberately stays small and predictable. It is meant for dictation
-    commands ("nouvelle ligne", "virgule"), not full voice control.
+    Punctuation and layout are substitutions, but the edit commands are not:
+    "effacer" has to remove what was already dictated, so the text is folded
+    left to right rather than regex-replaced in place.
     """
-    for pattern, replacement in COMMAND_REPLACEMENTS:
-        text = pattern.sub(replacement, text)
-    text = re.sub(r"[ \t]+\n", "\n", text)
-    text = re.sub(r"\n[ \t]+", "\n", text)
-    text = re.sub(r"([,;:!?])\s+", r"\1 ", text)
-    text = re.sub(r"\.\s+", ". ", text)
-    return text.strip()
+    parts = _COMMAND_RE.split(text)
+    out = parts[0] if parts else ""
+    # split() with one capturing group yields [text, command, text, ...].
+    for index in range(1, len(parts), 2):
+        command = parts[index].lower()
+        tail = parts[index + 1] if index + 1 < len(parts) else ""
+        kind, value = _ACTIONS.get(command, ("insert", ""))
+        if kind == "clear":
+            out = ""
+        elif kind == "del_word":
+            out = _delete_last_word(out)
+        elif kind == "bullet":
+            out = out.rstrip() + ("\n- " if out.strip() else "- ")
+        else:
+            out = out.rstrip() + value
+        out += tail
+
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n[ \t]+", "\n", out)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"\s+([,;:.!?…])", r"\1", out)
+    out = re.sub(r"([,;:!?…])(?=[^\s\n])", r"\1 ", out)
+    # French typography: the "high" punctuation marks take a space before them,
+    # the low ones do not. Dictated text goes into emails, so getting this
+    # wrong is visible to whoever receives them.
+    out = re.sub(r"(?<=[^\s])([;:!?»])", r" \1", out)
+    out = re.sub(r"(«)(?=[^\s])", r"\1 ", out)
+    out = re.sub(r"\(\s+", "(", out)
+    out = re.sub(r"\s+\)", ")", out)
+    out = re.sub(r"«\s+", "« ", out)
+    out = re.sub(r"\s+»", " »", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    # A new sentence, line or bullet starts with a capital.
+    out = _SENTENCE_END_RE.sub(lambda m: m.group(1) + m.group(2).upper(), out)
+    return out.strip()
 
 
 def clean_transcript(text: str, mode: str = "light") -> str:

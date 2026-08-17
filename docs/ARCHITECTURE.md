@@ -45,7 +45,7 @@ that share the same core:
 | `config.py` | Persistent per-user settings (`Config`, backed by `%APPDATA%\Plume\config.json` on Windows, `~/.config/plume` elsewhere), hotkey display-string <-> pynput format conversion. |
 | `vocabulary.py` | User correction dictionary: biases recognition (`hotwords`/`initial_prompt`) and post-corrects known mis-hearings. |
 | `ui_theme.py` | Shared design tokens (colors, font) and the procedurally-drawn feather app icon (used for the tray icon and window icon; also generates `assets/plume.ico`/`.png` at build time via `scripts/make_icons.py`). |
-| `floating_bubble.py` | The shipped floating "listening" pill: a native Tk window with liquid glass / water droplet optics, 3D droplet indicator, and voice-reactive fluid wave ripples. Runs its own Tk loop in a daemon thread, driven from any thread through a command queue. Draggable, never takes focus, degrades to a no-op if Tk is missing. |
+| `floating_bubble.py` | The shipped floating "listening" pill. `GlassRenderer` draws it with Pillow (supersampled, real per-pixel alpha) and `_LayeredWindow` pushes each frame to a Windows layered window via `UpdateLayeredWindow`, which is what makes it translucent glass with antialiased edges rather than a colour-keyed Tk canvas. Runs its own Tk loop in a daemon thread purely for windowing and events, driven from any thread through a command queue. Draggable, never takes focus, degrades to a no-op if Tk or Pillow is missing. Nothing is ever read back from the screen. |
 
 ## UI (pywebview)
 

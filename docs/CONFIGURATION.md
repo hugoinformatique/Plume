@@ -32,6 +32,10 @@ value)` writes a key and persists immediately.
 | `bubble_xy` | `null` | `[x, y]` written once the user drags the pill somewhere; it then wins over `bubble_position`. Cleared by re-picking a position or by "Replacer" in the settings. |
 | `hotkey` | `"<ctrl>+<space>"` | Global hotkey in `pynput` format. Set indirectly via `hotkey_display` + `config.hotkey_to_pynput()` — don't hand-edit this one. |
 | `hotkey_display` | `"Ctrl + Espace"` | Human-readable hotkey shown in the UI. |
+| `hotkey_translate` | `"<ctrl>+<shift>+<space>"` | Shortcut for the FR->EN translation dictation (`pynput` format). Must differ from `hotkey`: two listeners on one combination make the mode a coin toss, so an identical value is refused. |
+| `hotkey_translate_display` | `"Ctrl + Maj + Espace"` | Human-readable form of the above. |
+| `translate_enabled` | `true` | Whether the translation shortcut is bound at all. |
+| `bubble_preview` | `true` | Show the recognised text in the floating bubble when it lands, instead of just "Collé". The pill grows to fit it and stays up longer for longer text. |
 | `autopaste` | `true` | Paste the transcript into the active app automatically; if `false`, it's copied to the clipboard instead. |
 | `autostart` | `false` | Launch Plume when Windows starts (writes/removes a `HKCU\...\Run` registry value — packaged builds only, see `set_autostart()` in `plume.py`). |
 | `auto_update` | `false` | Whether Plume checks GitHub for a new release at startup. Off by default: out of the box the app opens no outbound connection at all. The "Vérifier" button works regardless. |

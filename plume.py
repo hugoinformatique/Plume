@@ -35,7 +35,7 @@ PROFILES = {
 }
 FAST_WHISPER_MODEL_NAMES = {"base", "small", "medium", "turbo"}
 DEFAULT_OPENVINO_MODEL = r"models\openvino\whisper-small"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 GITHUB_REPO_URL = "https://github.com/hugoinformatique/Plume"
 GITHUB_RELEASES_URL = "https://api.github.com/repos/hugoinformatique/Plume/releases/latest"
 GITHUB_RELEASES_LATEST_URL = f"{GITHUB_REPO_URL}/releases/latest"
@@ -279,9 +279,33 @@ class HotkeyEngine:
         except Exception:
             return key
 
+    def _modifiers(self) -> set:
+        """The four modifier keys, canonicalised (ctrl_l and ctrl_r -> ctrl)."""
+        from pynput import keyboard
+
+        return {keyboard.Key.ctrl, keyboard.Key.alt, keyboard.Key.shift, keyboard.Key.cmd}
+
+    def _matches(self) -> bool:
+        """Combo complete, and no *extra* modifier held.
+
+        A plain subset test is not enough once there are two shortcuts: with
+        Ctrl+Shift+Space held, {ctrl, space} is a subset of what is pressed, so
+        the dictation shortcut fired at the same time as the translation one --
+        and the debounce in toggle() then swallowed whichever came second, so
+        the mode you got was a race. It also means Ctrl+Alt+Space no longer
+        triggers a Ctrl+Space shortcut, which was never intended either.
+        """
+        if not self._keys.issubset(self._pressed):
+            return False
+        try:
+            extra = (self._pressed & self._modifiers()) - self._keys
+        except Exception:  # pragma: no cover - pynput unavailable
+            return True
+        return not extra
+
     def _on_press(self, key) -> None:
         self._pressed.add(self._canonical(key))
-        if not self._active and self._keys.issubset(self._pressed):
+        if not self._active and self._matches():
             self._active = True
             _debug_log(f"hotkey fired: {self.combo} ({'hold' if self.hold else 'toggle'})")
             try:
@@ -291,7 +315,7 @@ class HotkeyEngine:
 
     def _on_release(self, key) -> None:
         self._pressed.discard(self._canonical(key))
-        if self._active and not self._keys.issubset(self._pressed):
+        if self._active and not self._matches():
             self._active = False
             if self.hold and self._on_deactivate is not None:
                 _debug_log(f"hotkey released: {self.combo}")
@@ -321,6 +345,9 @@ class PlumeApp:
         self._last_toggle_at = 0.0
         self.recordings_dir = config_dir() / "recordings"
         self._update_info: dict | None = None
+        # "transcribe" or "translate", armed per dictation by the shortcut used.
+        self._task = "transcribe"
+        self.hotkeys_translate = None
 
     # ---- engine (kept warm) -------------------------------------------------
     def _engine_params(self) -> tuple:
@@ -448,11 +475,30 @@ class PlumeApp:
         if bubble is not None:
             bubble.set_state(state, text)
 
-    def _bubble_done(self, text: str) -> None:
-        """Closing beat of a dictation: a brief confirmation on the pill."""
+    def _preview_label(self, text: str, fallback: str) -> str:
+        """What the pill shows once the text has landed.
+
+        With the preview on, that is the transcript itself -- the point of the
+        feature is to confirm what was just inserted without looking away from
+        the document being written. The pill grows to fit and ellipsizes from
+        the left, so the *end* of the sentence stays readable.
+        """
+        if not self.config.get("bubble_preview"):
+            return fallback
+        flat = " ".join(str(text).split())
+        return flat or fallback
+
+    def _bubble_done(self, text: str, full: str = "") -> None:
+        """Closing beat of a dictation: a brief confirmation on the pill.
+
+        The longer the text, the longer it stays up -- a 40-word paragraph
+        flashed for the same 950 ms as "Collé" is unreadable.
+        """
         if self.bubble is not None:
             try:
-                self.bubble.flash_done(text)
+                length = len(full or text)
+                ms = 950 if not full else max(950, min(2600, 700 + 26 * length))
+                self.bubble.flash_done(text, ms)
             except Exception as exc:  # noqa: BLE001
                 _debug_log(f"bubble flash_done failed: {exc}")
 
@@ -480,6 +526,17 @@ class PlumeApp:
             time.sleep(0.07)
 
     # ---- recording ----------------------------------------------------------
+    def toggle_translate(self) -> None:
+        """Dictate in French, insert English. Same flow, Whisper's other task.
+
+        Arming the mode only makes sense when a dictation *starts*: pressing
+        the translate shortcut while already recording means "stop", exactly
+        like the normal one, and must not retarget a dictation in flight.
+        """
+        if not self.recording:
+            self._task = "translate"
+        self.toggle()
+
     def toggle(self) -> None:
         # The global hotkey (often Ctrl+Space) can fire twice for one press
         # -- e.g. OS key-repeat on the space bar if it's held a fraction too
@@ -584,6 +641,10 @@ class PlumeApp:
 
     def _start(self) -> None:
         self.recording = True
+        if self.bubble is not None or self._task == "translate":
+            bubble = self._get_bubble()
+            if bubble is not None:
+                bubble.set_translate(self._task == "translate")
         self.recorder.start()
         self._beep("start")
         self._set_recording_ui(True)
@@ -601,20 +662,30 @@ class PlumeApp:
             self._set_status("Enregistrement trop court", "Prêt")
             self._hide_bubble()
             return
-        self._bubble_state("transcribing", "Transcription…")
-        self._set_status("Transcription locale…", "…")
+        translating = self._task == "translate"
+        self._bubble_state("transcribing", "Traduction…" if translating else "Transcription…")
+        self._set_status("Traduction locale…" if translating else "Transcription locale…", "…")
         self.worker = threading.Thread(target=self._transcribe, args=(path,), daemon=True)
         self.worker.start()
 
     def _transcribe(self, path: Path) -> None:
         flashed = False
+        task, self._task = self._task, "transcribe"
         try:
             engine = self._get_engine()
             hotwords = self.vocab.hotwords() or None
             initial = self.vocab.initial_prompt() or None
-            result = engine.transcribe_full(path, hotwords=hotwords, initial_prompt=initial)
+            result = engine.transcribe_full(
+                path, hotwords=hotwords, initial_prompt=initial, task=task
+            )
             mode = self.config.get("cleanup")
-            text = result.text if mode == "off" else clean_transcript(result.text, mode)
+            # Spoken punctuation and layout commands are French; on a
+            # translated pass the output is English, so cleaning it with the
+            # French command list would mangle it.
+            if task == "translate":
+                text = result.text.strip()
+            else:
+                text = result.text if mode == "off" else clean_transcript(result.text, mode)
             text = self.vocab.apply(text)
             self._set_transcript(text)
             if text:
@@ -622,12 +693,12 @@ class PlumeApp:
             if text and self.config.get("autopaste"):
                 paste_text(text)
                 self._set_status(f"Collé — {result.elapsed:.1f}s", "Prêt")
-                self._bubble_done("Collé")
+                self._bubble_done(self._preview_label(text, "Collé"), text)
                 flashed = True
             elif text:
                 copy_text(text)
                 self._set_status(f"Prêt (copié) — {result.elapsed:.1f}s", "Prêt")
-                self._bubble_done("Copié")
+                self._bubble_done(self._preview_label(text, "Copié"), text)
                 flashed = True
             else:
                 self._set_status("Aucun texte détecté", "Prêt")
@@ -744,7 +815,50 @@ class PlumeApp:
             self.hotkeys = engine
         _debug_log(f"hotkey installed: combo={combo} mode={mode}")
         self._set_status(f"Raccourci actif : {self.config.get('hotkey_display')}", "Prêt")
+        self._install_translate_hotkey()
         return {"ok": True, "error": None}
+
+    def _install_translate_hotkey(self) -> dict:
+        """(Re)bind the translation shortcut. Always toggle, never push-to-talk.
+
+        A failure here is not fatal the way the main shortcut is: dictation
+        still works, only the translate mode is unavailable. It is reported,
+        not raised, and it never touches `self.hotkeys`.
+        """
+        with self._hotkey_lock:
+            old, self.hotkeys_translate = self.hotkeys_translate, None
+            if old is not None:
+                try:
+                    old.stop()
+                except Exception as exc:  # noqa: BLE001
+                    _debug_log(f"translate hotkey stop failed: {exc}")
+
+            combo = str(self.config.get("hotkey_translate") or "").strip()
+            if not combo or not self.config.get("translate_enabled"):
+                _debug_log("translate hotkey disabled")
+                return {"ok": True, "error": None, "enabled": False}
+            if combo == (self.config.get("hotkey") or ""):
+                # Two listeners on one combination: whichever answers first
+                # wins, so the mode would be a coin toss.
+                message = "Le raccourci de traduction doit différer du raccourci de dictée."
+                _debug_log(f"translate hotkey refused: identical to the dictation one ({combo})")
+                return {"ok": False, "error": message, "enabled": False}
+            try:
+                engine = HotkeyEngine(
+                    combo,
+                    on_activate=lambda: threading.Thread(
+                        target=self.toggle_translate, daemon=True).start(),
+                    on_deactivate=lambda: None,
+                    hold=False,
+                )
+                engine.start()
+            except Exception as exc:  # noqa: BLE001
+                _debug_log(f"translate hotkey install FAILED: combo={combo} err={exc}")
+                return {"ok": False, "error": f"Raccourci de traduction indisponible : {exc}",
+                        "enabled": False}
+            self.hotkeys_translate = engine
+        _debug_log(f"translate hotkey installed: combo={combo}")
+        return {"ok": True, "error": None, "enabled": True}
 
     # ---- tray ---------------------------------------------------------------
     def _tray_image(self):
@@ -927,11 +1041,12 @@ class PlumeApp:
         self._set_status("Profil NPU/iGPU indisponible : retour au moteur CPU.", "Prêt")
 
     def quit(self) -> None:
-        try:
-            if self.hotkeys:
-                self.hotkeys.stop()
-        except Exception:
-            pass
+        for listener in (self.hotkeys, self.hotkeys_translate):
+            try:
+                if listener:
+                    listener.stop()
+            except Exception:
+                pass
         try:
             if self.tray:
                 self.tray.stop()
@@ -1054,6 +1169,9 @@ class Api:
                 "profile": profile, "cleanup": c.get("cleanup"),
                 "compute": c.get("compute"), "bubble_position": c.get("bubble_position"),
                 "hotkey_display": c.get("hotkey_display"),
+                "hotkey_translate_display": c.get("hotkey_translate_display"),
+                "translate_enabled": c.get("translate_enabled"),
+                "bubble_preview": c.get("bubble_preview"),
                 "autopaste": c.get("autopaste"), "autostart": c.get("autostart"),
                 "push_to_talk": c.get("push_to_talk"), "sound_feedback": c.get("sound_feedback"),
                 "auto_update": c.get("auto_update"),
@@ -1139,6 +1257,25 @@ class Api:
         return {"ok": True, "hotkey_display": display, "combo": combo}
 
     @_api_call
+    def set_translate_hotkey(self, display):
+        """Same contract as set_hotkey, for the FR->EN shortcut."""
+        combo = hotkey_to_pynput(display)
+        previous_display = self._app.config.get("hotkey_translate_display")
+        previous_combo = self._app.config.get("hotkey_translate")
+        self._app.config.data["hotkey_translate_display"] = display
+        self._app.config.set("hotkey_translate", combo)
+        installed = self._app._install_translate_hotkey()
+        if not installed.get("ok"):
+            self._app.config.data["hotkey_translate_display"] = previous_display
+            self._app.config.set("hotkey_translate", previous_combo)
+            self._app._install_translate_hotkey()
+            return {
+                "ok": False, "error": installed.get("error"),
+                "hotkey_display": previous_display, "combo": previous_combo,
+            }
+        return {"ok": True, "hotkey_display": display, "combo": combo}
+
+    @_api_call
     def set_setting(self, key, value):
         previous = self._current_profile() if key == "profile" else self._app.config.get(key)
         if key == "profile":
@@ -1166,6 +1303,12 @@ class Api:
             threading.Thread(target=self._app._preload, daemon=True).start()
         if key == "autostart":
             set_autostart(bool(value))
+        if key == "translate_enabled":
+            installed = self._app._install_translate_hotkey()
+            if not installed.get("ok"):
+                self._app.config.set(key, previous)
+                return {"ok": False, "key": key, "value": previous,
+                        "error": installed.get("error")}
         if key == "bubble_position":
             # Choosing top/bottom again means "put it back where you decide":
             # forget the position the user may have dragged it to, otherwise
